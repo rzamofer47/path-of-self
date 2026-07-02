@@ -1,16 +1,24 @@
 {
   "expo": {
-    "name": "rpg-skill-tree",
+    "name": "Path of Self",
     "slug": "rpg-skill-tree",
     "version": "1.0.0",
+    "description": "Gamified personal development RPG skill tree",
+    "extra": {
+      "eas": {
+        "projectId": "REEMPLAZAR_TRAS_eas_init"
+      }
+    },
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "rpgskilltree",
     "userInterfaceStyle": "automatic",
     "ios": {
+      "bundleIdentifier": "com.pathofself.rpgskilltree",
       "supportsTablet": true
     },
     "android": {
+      "package": "com.pathofself.rpgskilltree",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -26,6 +34,14 @@
     },
     "plugins": [
       "expo-router",
+      "expo-sqlite",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#c9a227"
+        }
+      ],
       [
         "expo-splash-screen",
         {
@@ -33,7 +49,8 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true

@@ -1,0 +1,13 @@
+cd "d:\Path of self\rpg-skill-tree"
+npm start
+
+npx expo start --clear
+
+
+---
+
+npm i -g eas-cli
+eas login
+eas init
+eas build --platform android --profile production
+eas build --platform ios --profile production
