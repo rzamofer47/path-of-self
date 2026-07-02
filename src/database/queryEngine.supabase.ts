@@ -13,8 +13,17 @@ import { wildcardSlugForArea } from '@/src/utils/wildcardNodes';
 import { resolveSubSkillPlacement } from '@/src/utils/polarLayout';
 import { resolveShadowOriginPosition } from '@/src/utils/shadowNodePlacement';
 import { prepareSupabaseUser } from './supabaseSeed';
-import { getSupabase } from '@/src/lib/supabase';
+import { ensureSupabaseSession, getSupabase } from '@/src/lib/supabase';
+import { XP_PER_SESSION } from '@/src/config/progressionConfig';
 import {
+  cancelDecayAlert,
+  scheduleDecayAlert,
+} from '@/src/hooks/usePracticeReminder';
+import { inferXpFeedbackEvent, type XpFeedbackPayload } from '@/src/utils/xpFeedback';
+import { isVisualDecayTrackedNode } from '@/src/utils/visualDecay';
+import { appendSessionQualityHistory, sessionXpMultiplier } from '@/src/utils/sessionQuality';
+import {
+  CalidadSesion,
   MacroArea,
   NodeType,
   OnboardingAnswers,
@@ -50,16 +59,39 @@ function mapSupabaseNode(row: Record<string, unknown>): SkillNode {
     origin_pos_x: row.origin_pos_x,
     origin_pos_y: row.origin_pos_y,
     is_deleted: row.is_deleted,
+    daily_verified_at: row.daily_verified_at,
+    session_quality: row.session_quality,
+    session_quality_history: row.session_quality_history,
     created_at: row.created_at,
   });
 }
 
-async function getAuthId(): Promise<string> {
+// Retorna null si no hay sesión activa — nunca crashea al inicio
+async function getAuthId(): Promise<string | null> {
+  return ensureSupabaseSession();
+}
+
+// Retorna authId garantizado — solo para funciones que requieren sesión activa
+async function requireAuthId(): Promise<string> {
   return prepareSupabaseUser();
+}
+
+export async function markOnboardingComplete(): Promise<void> {
+  const authId = await getAuthId();
+  if (!authId) return;
+
+  const { error } = await getSupabase()
+    .from('profiles')
+    .update({ onboarding_complete: true })
+    .eq('auth_id', authId);
+
+  if (error) throw error;
 }
 
 export async function getUser(): Promise<User | null> {
   const authId = await getAuthId();
+  if (!authId) return null;
+
   const supabase = getSupabase();
 
   const { data, error } = await supabase
@@ -73,7 +105,7 @@ export async function getUser(): Promise<User | null> {
 }
 
 export async function completeOnboarding(answers: OnboardingAnswers): Promise<User> {
-  const authId = await getAuthId();
+  const authId = await requireAuthId();
   const supabase = getSupabase();
   const cal = calibrateProfile(answers);
 
@@ -100,7 +132,7 @@ export async function completeOnboarding(answers: OnboardingAnswers): Promise<Us
 }
 
 export async function updatePracticeReminder(enabled: boolean, hour: number): Promise<void> {
-  const authId = await getAuthId();
+  const authId = await requireAuthId();
   const { error } = await getSupabase()
     .from('profiles')
     .update({
@@ -112,7 +144,7 @@ export async function updatePracticeReminder(enabled: boolean, hour: number): Pr
 }
 
 export async function updateSelectedSkin(skinId: SkinId): Promise<void> {
-  const authId = await getAuthId();
+  const authId = await requireAuthId();
   const { error } = await getSupabase()
     .from('profiles')
     .update({ selected_skin: skinId })
@@ -121,7 +153,7 @@ export async function updateSelectedSkin(skinId: SkinId): Promise<void> {
 }
 
 export async function updateTreeViewMode(mode: TreeViewMode): Promise<void> {
-  const authId = await getAuthId();
+  const authId = await requireAuthId();
   const { error } = await getSupabase()
     .from('profiles')
     .update({ tree_view_mode: mode })
@@ -134,13 +166,61 @@ export async function updateNodePosition(
   posX: number,
   posY: number
 ): Promise<void> {
-  const authId = await getAuthId();
+  const authId = await requireAuthId();
   const { error } = await getSupabase()
     .from('nodes')
     .update({ pos_x: posX, pos_y: posY })
     .eq('id', nodeId)
     .eq('auth_id', authId);
   if (error) throw error;
+}
+
+export async function updateNodeName(
+  nodeId: number,
+  name: string
+): Promise<{ success: boolean; message?: string; node?: SkillNode }> {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return { success: false, message: 'Escribe un nombre para el nodo' };
+  }
+
+  const authId = await requireAuthId();
+  const supabase = getSupabase();
+
+  const { data: row, error: fetchError } = await supabase
+    .from('nodes')
+    .select('*')
+    .eq('auth_id', authId)
+    .eq('id', nodeId)
+    .maybeSingle();
+
+  if (fetchError) return { success: false, message: fetchError.message };
+  if (!row) return { success: false, message: 'Nodo no encontrado' };
+
+  const node = mapSupabaseNode(row);
+  if (node.id <= 0) {
+    return { success: false, message: 'Este nodo no se puede renombrar' };
+  }
+  if (isRootNode(node)) {
+    return { success: false, message: 'Las raíces Nen no se pueden renombrar' };
+  }
+  if (node.layer === 'locked' || node.layer === 'guide' || node.layer === 'dormant') {
+    return { success: false, message: 'Este nodo no se puede renombrar' };
+  }
+
+  const { data: updated, error: updateError } = await supabase
+    .from('nodes')
+    .update({ name: trimmed })
+    .eq('auth_id', authId)
+    .eq('id', nodeId)
+    .select('*')
+    .single();
+
+  if (updateError || !updated) {
+    return { success: false, message: updateError?.message ?? 'No se pudo renombrar' };
+  }
+
+  return { success: true, node: mapSupabaseNode(updated) };
 }
 
 async function findRootParentId(authId: string, macroArea: MacroArea): Promise<number | null> {
@@ -158,6 +238,10 @@ async function findRootParentId(authId: string, macroArea: MacroArea): Promise<n
 
 export async function getAllNodes(): Promise<SkillNode[]> {
   const authId = await getAuthId();
+
+  // Sin sesión activa → retorna array vacío, no crashea
+  if (!authId) return [];
+
   const { data, error } = await getSupabase()
     .from('nodes')
     .select('*')
@@ -177,7 +261,7 @@ export async function createCustomNode(
   explicitParentId?: number | null,
   options?: { slug?: string | null; guideUrl?: string | null }
 ): Promise<SkillNode> {
-  const authId = await getAuthId();
+  const authId = await requireAuthId();
   const supabase = getSupabase();
   const parentId =
     explicitParentId !== undefined
@@ -224,7 +308,7 @@ export async function configureWildcardNode(
     return { success: false, message: 'Escribe el nombre de tu disciplina' };
   }
 
-  const authId = await getAuthId();
+  const authId = await requireAuthId();
   const supabase = getSupabase();
 
   const { data: row, error: fetchError } = await supabase
@@ -331,7 +415,7 @@ function collectDescendantIds(nodeId: number, nodes: SkillNode[]): number[] {
 export async function banishNodeToUnderworld(
   nodeId: number
 ): Promise<{ success: boolean; message?: string }> {
-  const authId = await getAuthId();
+  const authId = await requireAuthId();
   const supabase = getSupabase();
 
   const { data: row, error: fetchError } = await supabase
@@ -398,73 +482,85 @@ export async function banishNodeToUnderworld(
   return { success: true };
 }
 
-/** Borrado lógico — oculta del mapa preservando XP, nivel y posición. */
 export async function softDeleteNode(
   nodeId: number
 ): Promise<{ success: boolean; message?: string }> {
-  const authId = await getAuthId();
-  const supabase = getSupabase();
+  try {
+    const authId = await requireAuthId();
+    const supabase = getSupabase();
 
-  const { data: row, error: fetchError } = await supabase
-    .from('nodes')
-    .select('*')
-    .eq('auth_id', authId)
-    .eq('id', nodeId)
-    .maybeSingle();
-
-  if (fetchError || !row) {
-    return { success: false, message: 'Nodo no encontrado' };
-  }
-
-  const node = mapSupabaseNode(row);
-  if (node.id <= 0) {
-    return { success: false, message: 'Este nodo no se puede archivar' };
-  }
-  if (isRootNode(node)) {
-    return { success: false, message: 'Las raíces permanecen ancladas en la superficie' };
-  }
-  if (node.layer === 'locked') {
-    return { success: false, message: 'Los nodos del catálogo no se pueden archivar' };
-  }
-  if (node.isDeleted) {
-    return { success: false, message: 'Este nodo ya está en el inframundo' };
-  }
-
-  const allNodes = await getAllNodes();
-  const idsToDelete = collectDescendantIds(nodeId, allNodes).filter((id) => {
-    const candidate = allNodes.find((n) => n.id === id);
-    return (
-      candidate &&
-      !isRootNode(candidate) &&
-      candidate.layer !== 'locked' &&
-      !candidate.isDeleted
-    );
-  });
-
-  for (const id of idsToDelete) {
-    const { error: updateError } = await supabase
+    const { data: row, error: fetchError } = await supabase
       .from('nodes')
-      .update({ is_deleted: true })
+      .select('*')
       .eq('auth_id', authId)
-      .eq('id', id);
+      .eq('id', nodeId)
+      .maybeSingle();
 
-    if (updateError) throw updateError;
+    if (fetchError) {
+      return { success: false, message: fetchError.message };
+    }
+    if (!row) {
+      return { success: false, message: 'Nodo no encontrado' };
+    }
 
-    await supabase.from('history_logs').insert({
-      auth_id: authId,
-      node_id: id,
-      action: 'banish',
-      amount: 0,
+    const node = mapSupabaseNode(row);
+    if (node.id <= 0) {
+      return { success: false, message: 'Este nodo no se puede archivar' };
+    }
+    if (isRootNode(node)) {
+      return { success: false, message: 'Las raíces permanecen ancladas en la superficie' };
+    }
+    if (node.layer === 'locked') {
+      return { success: false, message: 'Los nodos del catálogo no se pueden archivar' };
+    }
+    if (node.isDeleted) {
+      return { success: false, message: 'Este nodo ya está en el inframundo' };
+    }
+
+    const allNodes = await getAllNodes();
+    const idsToDelete = collectDescendantIds(nodeId, allNodes).filter((id) => {
+      const candidate = allNodes.find((n) => n.id === id);
+      return (
+        candidate &&
+        !isRootNode(candidate) &&
+        candidate.layer !== 'locked' &&
+        !candidate.isDeleted
+      );
     });
-  }
 
-  return { success: true };
+    for (const id of idsToDelete) {
+      const { error: updateError } = await supabase
+        .from('nodes')
+        .update({ is_deleted: true })
+        .eq('auth_id', authId)
+        .eq('id', id);
+
+      if (updateError) {
+        return { success: false, message: updateError.message };
+      }
+
+      const { error: logError } = await supabase.from('history_logs').insert({
+        auth_id: authId,
+        node_id: id,
+        action: 'banish',
+        amount: 0,
+      });
+      if (logError && typeof __DEV__ !== 'undefined' && __DEV__) {
+        console.warn('[softDeleteNode] history_logs:', logError.message);
+      }
+    }
+
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error al archivar';
+    return { success: false, message };
+  }
 }
 
 export async function restoreDeletedNode(
   nodeId: number
 ): Promise<{ success: boolean; message?: string; node?: SkillNode }> {
-  const authId = await getAuthId();
+  const authId = await requireAuthId();
   const supabase = getSupabase();
 
   const { data: row, error } = await supabase
@@ -509,7 +605,7 @@ export const deleteCustomNode = banishNodeToUnderworld;
 export async function reactivateNode(
   nodeId: number
 ): Promise<{ success: boolean; message?: string; node?: SkillNode }> {
-  const authId = await getAuthId();
+  const authId = await requireAuthId();
   const supabase = getSupabase();
 
   const { data: row, error } = await supabase
@@ -560,7 +656,7 @@ export async function addXpToNode(
   baseXp: number,
   user: User
 ): Promise<{ success: boolean; message?: string; node?: SkillNode }> {
-  const authId = await getAuthId();
+  const authId = await requireAuthId();
   const supabase = getSupabase();
 
   const { data: row, error } = await supabase
@@ -637,6 +733,149 @@ export async function addXpToNode(
   return { success: true, node: mapSupabaseNode(updated!) };
 }
 
+/** Marca la actividad como completada hoy y persiste en Supabase (check diario). */
+export async function setDailyVerification(
+  nodeId: number,
+  calidad: CalidadSesion = 'completa',
+  user?: User | null
+): Promise<{ success: boolean; message?: string; node?: SkillNode; feedback?: XpFeedbackPayload }> {
+  if (nodeId <= 0) {
+    return { success: false, message: 'Este nodo no admite verificación diaria' };
+  }
+
+  const authId = await requireAuthId();
+  const supabase = getSupabase();
+
+  const { data: row, error: fetchError } = await supabase
+    .from('nodes')
+    .select('*')
+    .eq('id', nodeId)
+    .eq('auth_id', authId)
+    .maybeSingle();
+
+  if (fetchError) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.log('CHECK NODE fetch error:', nodeId, 'auth:', authId, fetchError);
+    }
+    return { success: false, message: fetchError.message };
+  }
+  if (!row) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.log('CHECK NODE: no row for id', nodeId, 'auth:', authId);
+    }
+    return { success: false, message: 'Nodo no encontrado' };
+  }
+
+  const node = mapSupabaseNode(row);
+  if (node.layer === 'dormant' || node.id < 0) {
+    return { success: false, message: 'Este nodo no admite verificación diaria' };
+  }
+
+  const prevLevel = node.level;
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const historyJson = JSON.stringify(
+    appendSessionQualityHistory(node.sessionQualityHistory, calidad, now)
+  );
+
+  let newXp = node.xp;
+  let newLevel = node.level;
+  let lastPracticeAt = node.lastPracticeAt;
+  let weeklyXpSessions = node.weeklyXpSessions;
+  let weekStartAt = node.weekStartAt;
+  let logAmount = 0;
+  let excessMessage: string | undefined;
+  let layer = node.layer;
+
+  if (node.layer === 'locked') {
+    layer = 'custom';
+  }
+
+  if (user) {
+    const baseXp = XP_PER_SESSION * sessionXpMultiplier(calidad);
+
+    if (node.type === 'physical') {
+      let sessions = node.weeklyXpSessions;
+      if (!isSameWeek(node.weekStartAt, now)) sessions = 0;
+
+      const isExcess = sessions >= DECAY_CONFIG.physical.maxWeeklySessions;
+      if (isExcess) {
+        excessMessage = 'Sesión de exceso: solo +10% XP. Descansa para recuperar al 100%.';
+      }
+      const xpMultiplier = isExcess ? 0.1 : 1;
+      const xpGain = baseXp * user.xpGainModifier * xpMultiplier;
+      logAmount = xpGain;
+      newXp = node.xp + xpGain;
+      newLevel = levelFromXp(newXp);
+      lastPracticeAt = nowIso;
+      weeklyXpSessions = sessions + 1;
+      weekStartAt = isSameWeek(node.weekStartAt, now) ? node.weekStartAt! : getWeekStart(now);
+    } else {
+      const xpGain = baseXp * user.xpGainModifier;
+      logAmount = xpGain;
+      newXp = node.xp + xpGain;
+      newLevel = levelFromXp(newXp);
+      lastPracticeAt = nowIso;
+    }
+  } else {
+    lastPracticeAt = nowIso;
+  }
+
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    console.log('CHECK NODE:', nodeId, 'auth:', authId, 'last_practice_at:', lastPracticeAt);
+  }
+
+  const { data: updated, error: updateError } = await supabase
+    .from('nodes')
+    .update({
+      daily_verified_at: nowIso,
+      session_quality: calidad,
+      session_quality_history: historyJson,
+      xp: newXp,
+      level: newLevel,
+      last_practice_at: lastPracticeAt,
+      weekly_xp_sessions: weeklyXpSessions,
+      week_start_at: weekStartAt,
+      layer,
+    })
+    .eq('id', nodeId)
+    .eq('auth_id', authId)
+    .select('*')
+    .single();
+
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    console.log('CHECK RESULT:', updateError ?? 'ok', updated?.last_practice_at ?? null);
+  }
+
+  if (updateError || !updated) {
+    return {
+      success: false,
+      message: updateError?.message ?? 'No se pudo guardar la verificación',
+    };
+  }
+
+  await supabase.from('history_logs').insert({
+    auth_id: authId,
+    node_id: nodeId,
+    action: 'daily_check',
+    amount: logAmount,
+  });
+
+  const updatedNode = mapSupabaseNode(updated);
+  await cancelDecayAlert(nodeId);
+  if (isVisualDecayTrackedNode(updatedNode)) {
+    await scheduleDecayAlert(updatedNode);
+  }
+
+  let feedback: XpFeedbackPayload | undefined;
+  if (user) {
+    const allNodes = await getAllNodes();
+    feedback = inferXpFeedbackEvent(prevLevel, updatedNode, allNodes);
+  }
+
+  return { success: true, node: updatedNode, message: excessMessage, feedback };
+}
+
 export async function applyDecayToAllNodes(_user: User): Promise<SkillNode[]> {
   return getAllNodes();
 }
@@ -659,6 +898,8 @@ export async function getAreaLevels(): Promise<Record<MacroArea, number>> {
 
 export async function getRecentHistory(limit = 20) {
   const authId = await getAuthId();
+  if (!authId) return [];
+
   const supabase = getSupabase();
 
   const { data, error } = await supabase
@@ -677,4 +918,14 @@ export async function getRecentHistory(limit = 20) {
     ...row,
     node_name: names.get(row.node_id as number) ?? '',
   }));
+}
+
+export async function mergeProgressOnOpen(): Promise<void> {
+  const authId = await getAuthId();
+  if (!authId) return;
+}
+
+export async function pushProgressToCloud(): Promise<void> {
+  const authId = await getAuthId();
+  if (!authId) return;
 }

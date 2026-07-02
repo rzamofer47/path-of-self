@@ -124,6 +124,7 @@ export default function TutorialScreen() {
     onAddXp: () => {},
     onDailyVerify: () => {},
     onShowInfo: () => {},
+    onRenameNode: () => {},
     onDeleteNode: () => {},
     onCloseMenu: () => {},
   });

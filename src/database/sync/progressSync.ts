@@ -441,6 +441,30 @@ export async function pushProgressToCloud(): Promise<number> {
   return toUpsert.length;
 }
 
+/** Borra el progreso sincronizado en la nube (reinicio total con sesión activa). */
+export async function clearCloudProgressForCurrentUser(): Promise<void> {
+  if (!isSupabaseEnabled()) return;
+
+  const userId = await ensureSupabaseSession();
+  if (!userId) return;
+
+  const supabase = getSupabase();
+  const { error: nodeError } = await supabase.from('node_progress').delete().eq('user_id', userId);
+  if (nodeError) {
+    console.error('[Sync] clearCloudProgress node_progress:', nodeError);
+    throw nodeError;
+  }
+
+  const { error: nenError } = await supabase
+    .from('nen_history_cloud')
+    .delete()
+    .eq('user_id', userId);
+  if (nenError && !isMissingTableError(nenError)) {
+    console.error('[Sync] clearCloudProgress nen_history_cloud:', nenError);
+    throw nenError;
+  }
+}
+
 /** Merge bidireccional al abrir: nube → local (más reciente gana), luego local → nube. */
 export async function mergeProgressOnOpen(): Promise<SyncResult> {
   if (!isSupabaseEnabled()) {

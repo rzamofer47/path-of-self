@@ -583,6 +583,18 @@ class WebDatabase implements AppDatabase {
       return { lastInsertRowId: id, changes: 1 };
     }
 
+    if (
+      normalized.includes('UPDATE users SET onboarding_complete = 1') &&
+      !normalized.includes('profile =')
+    ) {
+      const user = this.store.users[0];
+      if (user) {
+        user.onboarding_complete = 1;
+      }
+      this.persist();
+      return { lastInsertRowId: 0, changes: 1 };
+    }
+
     if (normalized.includes('UPDATE users SET') && normalized.includes('onboarding_complete = 1')) {
       const user = this.store.users[0];
       if (user) {

@@ -12,6 +12,7 @@ export interface NodeMenuHandlers {
   onAddXp: () => void | Promise<void>;
   onDailyVerify: () => void | Promise<void>;
   onShowInfo: () => void;
+  onRenameNode: (node: SkillNode) => void;
   onDeleteNode: (node: SkillNode) => void;
   onCloseMenu: () => void;
 }
@@ -92,6 +93,18 @@ export function buildNodeMenuActions(
         requestAnimationFrame(() => {
           handlers.onCloseMenu();
         });
+      },
+    });
+  }
+
+  if (caps.canRename) {
+    actions.push({
+      key: 'rename',
+      icon: '✎',
+      label: 'Renombrar',
+      onPress: () => {
+        handlers.onCloseMenu();
+        handlers.onRenameNode(node);
       },
     });
   }

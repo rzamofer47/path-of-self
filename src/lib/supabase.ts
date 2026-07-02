@@ -2,7 +2,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient, Session, SupabaseClient } from '@supabase/supabase-js';
 import { Platform } from 'react-native';
 
-import { isSupabaseEnabled } from '@/src/config/env';
+import { getSupabaseConfigError, isSupabaseEnabled, readSupabaseCredentials } from '@/src/config/env';
+
+function supabaseCredentials(): { url: string; key: string } {
+  const { url, key } = readSupabaseCredentials();
+  return { url, key };
+}
 
 let client: SupabaseClient | null = null;
 
@@ -16,14 +21,17 @@ const storageAdapter =
       };
 
 export function getSupabase(): SupabaseClient {
+  const configError = getSupabaseConfigError();
+  if (configError) {
+    throw new Error(configError);
+  }
   if (!isSupabaseEnabled()) {
     throw new Error('Supabase no está configurado. Añade EXPO_PUBLIC_SUPABASE_URL y EXPO_PUBLIC_SUPABASE_ANON_KEY.');
   }
 
   if (!client) {
-    client = createClient(
-      process.env.EXPO_PUBLIC_SUPABASE_URL!,
-      process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
+    const { url, key } = supabaseCredentials();
+    client = createClient(url, key,
       {
         auth: {
           storage: storageAdapter,
@@ -54,7 +62,7 @@ export async function ensureSupabaseSession(): Promise<string | null> {
 export async function getAuthUserId(): Promise<string> {
   const authId = await ensureSupabaseSession();
   if (!authId) {
-    throw new Error('Debes iniciar sesión con Google para usar la nube');
+    return null;
   }
   return authId;
 }

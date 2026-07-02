@@ -8,8 +8,10 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { getStorageMode, isSupabaseEnabled } from '@/src/config/env';
+import { logSupabaseConfigDebug } from '@/src/config/supabaseDebug';
 import {
   getUser,
+  markOnboardingComplete,
   mergeProgressOnOpen,
   pushProgressToCloud,
   updatePracticeReminder,
@@ -28,6 +30,7 @@ import {
   type SupabaseAuthAccount,
 } from '@/src/lib/googleAuth';
 import { onSupabaseAuthStateChange } from '@/src/lib/supabase';
+import { consumeSkipOnboardingAfterFullReset, isSkipOnboardingAfterFullReset } from '@/src/storage/localPrefs';
 import { getTheme } from '@/src/themes';
 import { AppTheme, SkinId, TreeViewMode, User } from '@/src/types';
 
@@ -96,17 +99,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const signInWithGoogle = async () => {
     await googleSignIn();
-    if (Platform.OS !== 'web') {
-      await prepareSupabaseUser();
-      await mergeProgressOnOpen();
+    if (Platform.OS === 'web') return;
+
+    await prepareSupabaseUser();
+
+    if (await consumeSkipOnboardingAfterFullReset()) {
+      await markOnboardingComplete();
       await refreshAuthAccount();
       await refreshUser();
+      return;
     }
+
+    await mergeProgressOnOpen();
+    await refreshAuthAccount();
+    await refreshUser();
   };
 
   const signOutAccount = async () => {
     await signOutFromGoogle();
     setAuthAccount(null);
+    setUser(null);
   };
 
   useEffect(() => {
@@ -114,12 +126,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     void (async () => {
       try {
+        logSupabaseConfigDebug();
         if (isSupabaseEnabled()) {
           await refreshAuthAccount();
           const account = await getSupabaseAuthAccount();
           if (account) {
-            await prepareSupabaseUser();
-            void mergeProgressOnOpen();
+            try {
+              await prepareSupabaseUser();
+              void mergeProgressOnOpen();
+            } catch (err) {
+              console.error('[AppContext] prepareSupabaseUser failed:', err);
+            }
           }
 
           unsubscribeAuth = onSupabaseAuthStateChange((session) => {
@@ -128,9 +145,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 id: session.user.id,
                 email: session.user.email ?? null,
               });
-              void prepareSupabaseUser().then(() => mergeProgressOnOpen());
+              void prepareSupabaseUser()
+                .then(async () => {
+                  if (await isSkipOnboardingAfterFullReset()) {
+                    await markOnboardingComplete();
+                  } else {
+                    await mergeProgressOnOpen();
+                  }
+                  await refreshUser();
+                })
+                .catch((err) => {
+                  console.error('[AppContext] prepareSupabaseUser on auth change:', err);
+                });
             } else {
               setAuthAccount(null);
+              setUser(null);
             }
           });
         }

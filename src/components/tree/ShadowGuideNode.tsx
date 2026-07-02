@@ -24,6 +24,7 @@ interface ShadowGuideNodeProps {
   onDailyVerify: (nodeId: number) => void;
   onAddSubSkill: (parent: SkillNode) => void;
   onDeleteNode: (node: SkillNode) => void;
+  onRenameNode: (node: SkillNode) => void;
   onShowInfo: (node: SkillNode) => void;
   detailMode: boolean;
   hideRadialMenu?: boolean;
@@ -48,6 +49,7 @@ export function ShadowGuideNode({
   onDailyVerify,
   onAddSubSkill,
   onDeleteNode,
+  onRenameNode,
   onShowInfo,
   detailMode,
   hideRadialMenu = false,
@@ -84,10 +86,11 @@ export function ShadowGuideNode({
               void onDailyVerify(node.id);
             },
             onShowInfo: () => onShowInfo(node),
+            onRenameNode,
             onDeleteNode,
             onCloseMenu: onDeactivate,
           }),
-    [hideRadialMenu, node, nodes, onAdoptGuide, onAddSubSkill, onAddXp, onDailyVerify, onDeleteNode, onDeactivate, onShowInfo]
+    [hideRadialMenu, node, nodes, onAdoptGuide, onAddSubSkill, onAddXp, onDailyVerify, onRenameNode, onDeleteNode, onDeactivate, onShowInfo]
   );
 
   const showMenu = !hideRadialMenu && detailMode && isActive && menuActions.length > 0;

@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 
 import { useAppContext } from '@/src/context/AppContext';
 import { isSupabaseEnabled } from '@/src/config/env';
+import { formatAuthError } from '@/src/lib/authErrors';
 import { SPACE_BG } from '@/src/utils/treeLayout';
 
 export default function LoginScreen() {
@@ -14,6 +15,7 @@ export default function LoginScreen() {
 
   useEffect(() => {
     if (authAccount) {
+      setLoading(false);
       router.replace('/(tabs)');
     }
   }, [authAccount, router]);
@@ -40,13 +42,21 @@ export default function LoginScreen() {
     setError(null);
     try {
       await signInWithGoogle();
-      if (Platform.OS !== 'web') {
+      // No navegues aquí — en móvil el login ocurre en browser externo
+      // El useEffect con authAccount se encarga de navegar cuando vuelva la sesión
+      // En web sí podemos navegar directo
+      if (Platform.OS === 'web') {
         router.replace('/(tabs)');
       }
+      // En móvil: setLoading(false) lo maneja el finally,
+      // y el useEffect navega cuando authAccount cambia
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo iniciar sesión');
+      setError(formatAuthError(err));
     } finally {
-      setLoading(false);
+      if (Platform.OS === 'web') {
+        setLoading(false);
+      }
+      // En móvil dejamos loading=true hasta que authAccount llegue
     }
   };
 
@@ -74,8 +84,8 @@ export default function LoginScreen() {
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <Text style={[styles.hint, { color: theme.textMuted }]}>
-        Los datos del mapa siguen guardándose en este dispositivo. La nube es tu respaldo
-        entre equipos.
+        Si ves un error de “provider not enabled”, activa Google en Supabase → Authentication →
+        Providers. Las credenciales van en el panel de Supabase, no solo en .env.
       </Text>
     </View>
   );

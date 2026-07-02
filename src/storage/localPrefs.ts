@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NenAxisId } from '@/src/config/nenConfig';
 
 const TUTORIAL_COMPLETED_KEY = '@path-of-self/tutorial-completed';
+const SKIP_ONBOARDING_AFTER_FULL_RESET_KEY = '@path-of-self/skip-onboarding-after-full-reset';
 const AUTO_FOCUS_MAP_KEY = '@path-of-self/auto-focus-map';
 const COOLING_ALERTS_KEY = '@path-of-self/cooling-alerts-enabled';
 const NEN_CELEBRATED_PEAKS_KEY = '@path-of-self/nen-celebrated-peaks';
@@ -59,6 +60,26 @@ export async function isTutorialCompleted(): Promise<boolean> {
 
 export async function setTutorialCompleted(completed: boolean): Promise<void> {
   await AsyncStorage.setItem(TUTORIAL_COMPLETED_KEY, completed ? '1' : '0');
+}
+
+export async function setSkipOnboardingAfterFullReset(enabled: boolean): Promise<void> {
+  if (enabled) {
+    await AsyncStorage.setItem(SKIP_ONBOARDING_AFTER_FULL_RESET_KEY, '1');
+  } else {
+    await AsyncStorage.removeItem(SKIP_ONBOARDING_AFTER_FULL_RESET_KEY);
+  }
+}
+
+export async function consumeSkipOnboardingAfterFullReset(): Promise<boolean> {
+  const value = await AsyncStorage.getItem(SKIP_ONBOARDING_AFTER_FULL_RESET_KEY);
+  if (value !== '1') return false;
+  await AsyncStorage.removeItem(SKIP_ONBOARDING_AFTER_FULL_RESET_KEY);
+  return true;
+}
+
+export async function isSkipOnboardingAfterFullReset(): Promise<boolean> {
+  const value = await AsyncStorage.getItem(SKIP_ONBOARDING_AFTER_FULL_RESET_KEY);
+  return value === '1';
 }
 
 export async function consumeAutoFocusMap(): Promise<boolean> {

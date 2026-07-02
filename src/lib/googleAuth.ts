@@ -4,6 +4,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
 
 import { getSupabase } from '@/src/lib/supabase';
+import { formatAuthError } from '@/src/lib/authErrors';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -72,7 +73,7 @@ export async function signInWithGoogle(): Promise<void> {
     },
   });
 
-  if (error) throw error;
+  if (error) throw new Error(formatAuthError(error));
 
   if (Platform.OS === 'web') {
     if (data?.url && typeof window !== 'undefined') {

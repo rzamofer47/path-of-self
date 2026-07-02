@@ -127,6 +127,42 @@ export async function updateNodePosition(
   );
 }
 
+export async function updateNodeName(
+  nodeId: number,
+  name: string
+): Promise<{ success: boolean; message?: string; node?: SkillNode }> {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return { success: false, message: 'Escribe un nombre para el nodo' };
+  }
+
+  const db = await getDatabase();
+  const row = await db.getFirstAsync('SELECT * FROM nodes WHERE id = ?', nodeId);
+  if (!row) return { success: false, message: 'Nodo no encontrado' };
+
+  const node = mapNode(asRow(row));
+  if (node.id <= 0) {
+    return { success: false, message: 'Este nodo no se puede renombrar' };
+  }
+  if (isRootNode(node)) {
+    return { success: false, message: 'Las raíces Nen no se pueden renombrar' };
+  }
+  if (node.layer === 'locked' || node.layer === 'guide' || node.layer === 'dormant') {
+    return { success: false, message: 'Este nodo no se puede renombrar' };
+  }
+
+  await db.runAsync(
+    'UPDATE nodes SET name = ?, progress_updated_at = ? WHERE id = ?',
+    trimmed,
+    new Date().toISOString(),
+    nodeId
+  );
+
+  const updated = await db.getFirstAsync('SELECT * FROM nodes WHERE id = ?', nodeId);
+  if (!updated) return { success: false, message: 'Nodo no actualizado' };
+  return { success: true, node: mapNode(asRow(updated)) };
+}
+
 async function findRootParentId(macroArea: MacroArea): Promise<number | null> {
   const db = await getDatabase();
   const row = await db.getFirstAsync(
@@ -895,4 +931,12 @@ export async function getRecentHistory(limit = 20) {
 /** Borra datos locales y reinicia el árbol (modo prueba). */
 export async function resetTestMode(): Promise<void> {
   await resetLocalPersistence();
+}
+
+/** Marca el cuestionario inicial como hecho sin alterar el perfil calibrado. */
+export async function markOnboardingComplete(): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync(
+    `UPDATE users SET onboarding_complete = 1 WHERE id = (SELECT id FROM users LIMIT 1)`
+  );
 }

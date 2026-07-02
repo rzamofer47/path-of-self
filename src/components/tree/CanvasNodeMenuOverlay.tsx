@@ -23,6 +23,7 @@ interface CanvasNodeMenuOverlayProps {
   onAddSubSkill: (parent: SkillNode) => void;
   onAdoptGuide: (guide: SkillNode) => void;
   onDeleteNode: (node: SkillNode) => void;
+  onRenameNode: (node: SkillNode) => void;
   onShowInfo: (node: SkillNode) => void;
 }
 
@@ -38,6 +39,7 @@ export function CanvasNodeMenuOverlay({
   onAddSubSkill,
   onAdoptGuide,
   onDeleteNode,
+  onRenameNode,
   onShowInfo,
 }: CanvasNodeMenuOverlayProps) {
   const caps = getNodeMenuCapabilities(node);
@@ -60,6 +62,7 @@ export function CanvasNodeMenuOverlay({
           void onDailyVerify(node.id);
         },
         onShowInfo: () => onShowInfo(node),
+        onRenameNode,
         onDeleteNode,
         onCloseMenu: onCloseMenu,
       }),
@@ -70,6 +73,7 @@ export function CanvasNodeMenuOverlay({
       onAddSubSkill,
       onAddXp,
       onDailyVerify,
+      onRenameNode,
       onDeleteNode,
       onCloseMenu,
       onShowInfo,

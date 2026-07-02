@@ -243,6 +243,15 @@ export function resolveVertienteId(node: SkillNode, allNodes?: SkillNode[]): Ver
       return rule.vertiente;
     }
   }
+
+  if (isRootNode(node)) {
+    const axisId = resolveRootMotherAxisId(node);
+    if (axisId) {
+      const vertientes = NEN_AXIS_VERTIENTES[axisId];
+      return vertientes[0] ?? null;
+    }
+  }
+
   if (allNodes && node.parentId != null) {
     const parent = allNodes.find((candidate) => candidate.id === node.parentId);
     if (parent) return resolveVertienteId(parent, allNodes);
@@ -297,15 +306,33 @@ export function resolveNenAxisId(node: SkillNode, allNodes?: SkillNode[]): NenAx
   if (motherAxis) return motherAxis;
 
   const vertiente = resolveVertienteId(node, allNodes);
-  if (!vertiente) return null;
-
-  for (const [axisId, vertientes] of Object.entries(NEN_AXIS_VERTIENTES) as [
-    NenAxisId,
-    readonly VertienteId[],
-  ][]) {
-    if (vertientes.includes(vertiente)) return axisId;
+  if (vertiente) {
+    for (const [axisId, vertientes] of Object.entries(NEN_AXIS_VERTIENTES) as [
+      NenAxisId,
+      readonly VertienteId[],
+    ][]) {
+      if (vertientes.includes(vertiente)) return axisId;
+    }
   }
-  return null;
+
+  if (allNodes) {
+    let current: SkillNode | undefined = node;
+    const visited = new Set<number>();
+    while (current && !visited.has(current.id)) {
+      visited.add(current.id);
+      if (isRootNode(current)) {
+        return resolveRootMotherAxisId(current);
+      }
+      current =
+        current.parentId != null
+          ? allNodes.find((candidate) => candidate.id === current!.parentId)
+          : undefined;
+    }
+  }
+
+  const centerX = node.posX + ORB_RADIUS;
+  const centerY = node.posY + ORB_RADIUS;
+  return resolveNenAxisFromCanvasPosition(centerX, centerY);
 }
 
 export function hasNenProgress(node: SkillNode): boolean {
@@ -335,7 +362,11 @@ export function isNenActiveNode(node: SkillNode): boolean {
 
   if (node.layer === 'root') return true;
 
-  return node.layer === 'custom' || node.layer === 'locked';
+  return (
+    node.layer === 'custom' ||
+    node.layer === 'locked' ||
+    (node.layer === 'wildcard' && hasNenProgress(node))
+  );
 }
 
 export function getDominantNenAxis(profile: NenProfile): NenAxisId {

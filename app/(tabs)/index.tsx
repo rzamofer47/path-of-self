@@ -11,9 +11,12 @@ import {
   View,
 } from 'react-native';
 import * as Notifications from 'expo-notifications';
+import { useRouter } from 'expo-router';
 
+import { isSupabaseEnabled } from '@/src/config/env';
 import { XP_PER_SESSION } from '@/src/config/progressionConfig';
 import { TreeCanvas } from '@/src/components/tree/TreeCanvas';
+import { NodeRenameModal } from '@/src/components/tree/NodeRenameModal';
 import { DailySummaryOverlay } from '@/src/components/tree/DailySummaryOverlay';
 import { TopBar } from '@/src/components/TopBar';
 import { NenHatsuProvider } from '@/src/context/NenHatsuContext';
@@ -29,12 +32,21 @@ import {
   setDailyVerification,
   getAllNodes,
   resetTestMode,
-  isSupabaseEnabled,
+  markOnboardingComplete,
+  clearCloudProgressForCurrentUser,
+  updateNodeName,
 } from '@/src/database/queryEngine';
+import { confirmAction } from '@/src/utils/confirmAction';
 import { isDormantNode } from '@/src/utils/nodeMenuPolicy';
 import { useDecayEngine } from '@/src/hooks/useDecayEngine';
 import { syncCoolingAlerts } from '@/src/hooks/usePracticeReminder';
-import { markOpenedToday, shouldShowDailySummary, consumeAutoFocusMap, setTutorialCompleted } from '@/src/storage/localPrefs';
+import {
+  markOpenedToday,
+  shouldShowDailySummary,
+  consumeAutoFocusMap,
+  setTutorialCompleted,
+  setSkipOnboardingAfterFullReset,
+} from '@/src/storage/localPrefs';
 import { DecayCategoryPicker, DEFAULT_DECAY_CATEGORIA } from '@/src/components/nen/DecayCategoryPicker';
 import { MacroArea, NodeType, SkillNode, DecayCategoria, CalidadSesion } from '@/src/types';
 import { resolveOrbitPlacement, resolveSubSkillPlacement } from '@/src/utils/polarLayout';
@@ -48,7 +60,9 @@ const MACRO_AREAS: { value: MacroArea; label: string }[] = [
 ];
 
 export default function TreeScreen() {
-  const { theme, user } = useAppContext();
+  const router = useRouter();
+  const { theme, user, authAccount, signOutAccount, refreshUser, refreshAuthAccount } =
+    useAppContext();
   const { nodes, deletedNodes, loading, error, refresh } = useDecayEngine();
   const [modalVisible, setModalVisible] = useState(false);
   const [parentNode, setParentNode] = useState<SkillNode | null>(null);
@@ -56,6 +70,7 @@ export default function TreeScreen() {
   const [newType, setNewType] = useState<NodeType>('intellectual');
   const [adoptingGuide, setAdoptingGuide] = useState<SkillNode | null>(null);
   const [newArea, setNewArea] = useState<MacroArea>('intellectual');
+  const [renameNode, setRenameNode] = useState<SkillNode | null>(null);
   const [newDecayCategoria, setNewDecayCategoria] = useState<DecayCategoria | null>(null);
   const [showDailySummary, setShowDailySummary] = useState(false);
   const [focusNodeIds, setFocusNodeIds] = useState<number[]>([]);
@@ -125,11 +140,15 @@ export default function TreeScreen() {
   );
 
   const handleDailyVerify = useCallback(
-    async (nodeId: number, calidad: CalidadSesion) => {
+    async (nodeId: number, calidad: CalidadSesion): Promise<boolean> => {
       const result = await setDailyVerification(nodeId, calidad, user);
       if (!result.success) {
-        Alert.alert('Verificación', result.message ?? 'No se pudo guardar');
-        return;
+        const hint =
+          result.message?.includes('fetch') || result.message?.includes('network')
+            ? ' Puede ser un fallo temporal de Supabase — reintenta en unos minutos.'
+            : '';
+        Alert.alert('Verificación', (result.message ?? 'No se pudo guardar') + hint);
+        return false;
       }
       if (result.message) {
         Alert.alert('Sobreentrenamiento', result.message);
@@ -140,6 +159,7 @@ export default function TreeScreen() {
       const allNodes = await getAllNodes();
       await syncCoolingAlerts(allNodes.filter((n) => !n.isDeleted && n.id > 0));
       await refresh({ silent: true });
+      return true;
     },
     [user, refresh]
   );
@@ -187,9 +207,30 @@ export default function TreeScreen() {
 
   const handleDeleteNode = useCallback(
     async (node: SkillNode) => {
-      const result = await softDeleteNode(node.id);
+      try {
+        const result = await softDeleteNode(node.id);
+        if (!result.success) {
+          Alert.alert('No se pudo archivar', result.message ?? 'Error desconocido');
+          return;
+        }
+        await refresh({ silent: true });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Error desconocido';
+        Alert.alert('No se pudo archivar', message);
+      }
+    },
+    [refresh]
+  );
+
+  const handleRenameNode = useCallback((node: SkillNode) => {
+    setRenameNode(node);
+  }, []);
+
+  const handleRenameSubmit = useCallback(
+    async (node: SkillNode, name: string) => {
+      const result = await updateNodeName(node.id, name);
       if (!result.success) {
-        Alert.alert('No se pudo archivar', result.message ?? 'Error desconocido');
+        Alert.alert('No se pudo renombrar', result.message ?? 'Error desconocido');
         return;
       }
       await refresh({ silent: true });
@@ -241,13 +282,12 @@ export default function TreeScreen() {
     };
 
     if (isSupabaseEnabled()) {
-      Alert.alert(
+      confirmAction(
         'Reinicio local',
         'Se borrará el almacenamiento local (SQLite / localStorage). Si la app está en modo nube, los datos de Supabase no se eliminan — desactiva EXPO_PUBLIC_SUPABASE_URL para probar solo en local.',
-        [
-          { text: 'Cancelar', style: 'cancel' },
-          { text: 'Reiniciar local', style: 'destructive', onPress: runReset },
-        ]
+        'Reiniciar local',
+        runReset,
+        { destructive: true }
       );
       return;
     }
@@ -255,16 +295,72 @@ export default function TreeScreen() {
     const message =
       'Se borrará todo el progreso guardado en este dispositivo (nodos, logs y historial Nen) y volverás al árbol inicial. ¿Continuar?';
 
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      if (window.confirm(message)) runReset();
+    confirmAction('Reiniciar modo prueba', message, 'Reiniciar', runReset, { destructive: true });
+  }, [refresh]);
+
+  const handleFullAppReset = useCallback(() => {
+    const runFullReset = () => {
+      void (async () => {
+        try {
+          await resetTestMode();
+          await markOnboardingComplete();
+          await setTutorialCompleted(true);
+          if (isSupabaseEnabled()) {
+            await setSkipOnboardingAfterFullReset(true);
+          }
+
+          if (isSupabaseEnabled() && authAccount) {
+            try {
+              await clearCloudProgressForCurrentUser();
+            } catch {
+              /* tablas de sync opcionales — el reinicio local sigue */
+            }
+          }
+
+          if (isSupabaseEnabled()) {
+            await signOutAccount();
+            await refreshAuthAccount();
+          }
+
+          await refreshUser();
+          await refresh();
+
+          if (isSupabaseEnabled()) {
+            if (Platform.OS === 'web' && typeof window !== 'undefined') {
+              window.location.assign('/login');
+              return;
+            }
+            router.replace('/login');
+          }
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : 'No se pudo reiniciar la aplicación';
+          Alert.alert('Error al reiniciar', message);
+        }
+      })();
+    };
+
+    if (!isSupabaseEnabled()) {
+      Alert.alert(
+        'Supabase no configurado',
+        'El archivo .env está vacío o no tiene EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_ANON_KEY. Guarda .env y reinicia con: npx expo start --clear'
+      );
       return;
     }
 
-    Alert.alert('Reiniciar modo prueba', message, [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Reiniciar', style: 'destructive', onPress: runReset },
-    ]);
-  }, [refresh]);
+    const title = 'Reinicio total';
+    const message =
+      'Se borrará todo el progreso en este dispositivo, volverás al árbol inicial y deberás iniciar sesión con Google de nuevo. ¿Continuar?';
+
+    confirmAction(title, message, 'Reiniciar todo', runFullReset, { destructive: true });
+  }, [
+    authAccount,
+    refresh,
+    refreshAuthAccount,
+    refreshUser,
+    router,
+    signOutAccount,
+  ]);
 
   const handleCreateNode = async () => {
     if (!newName.trim()) {
@@ -351,6 +447,7 @@ export default function TreeScreen() {
         theme={theme}
         onRestoreNode={handleRestoreNode}
         onResetTestMode={handleResetTestMode}
+        onFullAppReset={handleFullAppReset}
       />
 
       <NenHatsuProvider profileTick={nenHatsuTick}>
@@ -363,6 +460,7 @@ export default function TreeScreen() {
           onAddSubSkill={handleAddSubSkill}
           onAdoptGuide={handleAdoptGuide}
           onDeleteNode={handleDeleteNode}
+          onRenameNode={handleRenameNode}
           onConfigureWildcard={handleConfigureWildcard}
           onPersistPosition={() => refresh({ silent: true, skipDecay: true })}
           focusNodeIds={focusNodeIds}
@@ -376,6 +474,14 @@ export default function TreeScreen() {
       >
         <Text style={styles.fabText}>+</Text>
       </Pressable>
+
+      <NodeRenameModal
+        visible={renameNode != null}
+        node={renameNode}
+        theme={theme}
+        onClose={() => setRenameNode(null)}
+        onSubmit={handleRenameSubmit}
+      />
 
       <Modal visible={modalVisible} animationType="fade" transparent>
         <View style={styles.modalOverlay}>

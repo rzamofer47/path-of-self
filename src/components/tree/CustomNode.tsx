@@ -16,7 +16,7 @@ import { isDailyVerifiedToday } from '@/src/utils/dailyVerification';
 import { sessionQualityIcon } from '@/src/utils/sessionQuality';
 import { getNodeVisualIntensity } from '@/src/utils/nodeIntensity';
 import { getDecayState, isVisualDecayTrackedNode } from '@/src/utils/visualDecay';
-import { getNodeMenuCapabilities } from '@/src/utils/nodeMenuPolicy';
+import { getNodeMenuCapabilities, isRenamableNode } from '@/src/utils/nodeMenuPolicy';
 import {
   CANVAS_HEIGHT,
   CANVAS_WIDTH,
@@ -50,6 +50,7 @@ interface CustomNodeProps {
   onAddSubSkill: (parent: SkillNode) => void;
   onAdoptGuide: (guide: SkillNode) => void;
   onDeleteNode: (node: SkillNode) => void;
+  onRenameNode: (node: SkillNode) => void;
   onShowInfo: (node: SkillNode) => void;
   onMotherNodePress?: (node: SkillNode) => void;
   /** false = vista lejana (sin etiquetas ni detalle SVG). */
@@ -97,6 +98,7 @@ export function CustomNode({
   onAddSubSkill,
   onAdoptGuide,
   onDeleteNode,
+  onRenameNode,
   onShowInfo,
   onMotherNodePress,
   detailMode,
@@ -148,6 +150,12 @@ export function CustomNode({
       onActivate(node.id);
     }
   }, [isActive, isRoot, node, onActivate, onDeactivate, onMotherNodePress]);
+
+  const handleRenamePress = useCallback(() => {
+    if (!isRenamableNode(node)) return;
+    onDeactivate();
+    onRenameNode(node);
+  }, [node, onDeactivate, onRenameNode]);
 
   const syncDragOrigin = useCallback(() => {
     dragOrigin.current = { posX: node.posX, posY: node.posY };
@@ -274,15 +282,27 @@ export function CustomNode({
     [handleOrbPress]
   );
 
+  const renameTapGesture = useMemo(
+    () =>
+      Gesture.Tap()
+        .numberOfTaps(2)
+        .enabled(isRenamableNode(node))
+        .onEnd(() => {
+          runOnJS(handleRenamePress)();
+        }),
+    [handleRenamePress, node]
+  );
+
   const orbGesture = useMemo(
     () =>
       Gesture.Exclusive(
+        renameTapGesture,
         tapGesture,
         IS_NATIVE
           ? Gesture.Simultaneous(longPressGesture, mobileDragGesture)
           : panGesture
       ),
-    [longPressGesture, mobileDragGesture, panGesture, tapGesture]
+    [renameTapGesture, longPressGesture, mobileDragGesture, panGesture, tapGesture]
   );
 
   const tieneCheckHoy = isDailyVerifiedToday(visualNode);
@@ -359,6 +379,7 @@ export function CustomNode({
               void handleDailyVerify();
             },
             onShowInfo: handleShowInfo,
+            onRenameNode,
             onDeleteNode,
             onCloseMenu: onDeactivate,
           }),
@@ -371,6 +392,7 @@ export function CustomNode({
       handleAddXp,
       handleDailyVerify,
       handleShowInfo,
+      onRenameNode,
       onDeleteNode,
       onDeactivate,
     ]
@@ -412,8 +434,12 @@ export function CustomNode({
       {IS_WEB ? (
         <Pressable
           onPress={handleOrbPress}
+          onLongPress={isRenamableNode(node) ? handleRenamePress : undefined}
           accessibilityRole="button"
           accessibilityLabel={node.name}
+          accessibilityHint={
+            isRenamableNode(node) ? 'Toca para menú. Mantén pulsado para renombrar.' : undefined
+          }
           style={styles.orbHitArea}
         >
           {orbBody}

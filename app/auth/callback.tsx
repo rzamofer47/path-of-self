@@ -3,8 +3,9 @@ import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 
 import { useAppContext } from '@/src/context/AppContext';
-import { mergeProgressOnOpen } from '@/src/database/queryEngine';
+import { markOnboardingComplete, mergeProgressOnOpen } from '@/src/database/queryEngine';
 import { prepareSupabaseUser } from '@/src/database/supabaseSeed';
+import { consumeSkipOnboardingAfterFullReset } from '@/src/storage/localPrefs';
 import { createSessionFromUrl } from '@/src/lib/googleAuth';
 import { SPACE_BG } from '@/src/utils/treeLayout';
 
@@ -25,6 +26,16 @@ export default function AuthCallbackScreen() {
         }
 
         await prepareSupabaseUser();
+
+        const skipOnboardingAfterReset = await consumeSkipOnboardingAfterFullReset();
+        if (skipOnboardingAfterReset) {
+          await markOnboardingComplete();
+          await refreshAuthAccount();
+          await refreshUser();
+          router.replace('/(tabs)');
+          return;
+        }
+
         await mergeProgressOnOpen();
         await refreshAuthAccount();
         await refreshUser();

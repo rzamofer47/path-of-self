@@ -1,8 +1,9 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppTheme, SkillNode, User } from '@/src/types';
 import { LabelVisibility } from '@/src/utils/labelVisibility';
 import { getNodeVisualIntensity } from '@/src/utils/nodeIntensity';
+import { isRenamableNode } from '@/src/utils/nodeMenuPolicy';
 import { isNodeUnlocked, ORB_SIZE } from '@/src/utils/treeLayout';
 
 import { MENU_CONTAINER_WIDTH } from './nodeLabelLayout';
@@ -17,6 +18,7 @@ interface NodeOrbitLabelProps {
   user: User | null;
   visibility: LabelVisibility;
   elevated: boolean;
+  onRenameNode?: (node: SkillNode) => void;
 }
 
 /** Etiqueta flotante en capa superior — por encima de líneas de conexión. */
@@ -27,14 +29,16 @@ export function NodeOrbitLabel({
   user,
   visibility,
   elevated,
+  onRenameNode,
 }: NodeOrbitLabelProps) {
   const unlocked = isNodeUnlocked(node);
   const { palette } = getNodeVisualIntensity(node, nodes, user);
   const prominent = visibility.prominent || elevated;
+  const canRename = Boolean(onRenameNode && isRenamableNode(node));
 
   return (
     <View
-      pointerEvents="none"
+      pointerEvents={canRename ? 'box-none' : 'none'}
       style={[
         styles.wrap,
         {
@@ -44,7 +48,13 @@ export function NodeOrbitLabel({
         },
       ]}
     >
-      <View style={[styles.labelWrap, prominent && styles.labelWrapSelected]} pointerEvents="none">
+      <Pressable
+        disabled={!canRename}
+        onPress={() => onRenameNode?.(node)}
+        style={[styles.labelWrap, prominent && styles.labelWrapSelected]}
+        accessibilityRole="button"
+        accessibilityLabel={`Renombrar ${node.name}`}
+      >
         <Text
           style={[
             prominent ? styles.labelSelected : styles.label,
@@ -57,7 +67,7 @@ export function NodeOrbitLabel({
         >
           {node.name}
         </Text>
-      </View>
+      </Pressable>
     </View>
   );
 }

@@ -27,7 +27,11 @@ interface TopBarProps {
   theme: AppTheme;
   onRestoreNode: (node: SkillNode) => void;
   onResetTestMode?: () => void;
+  /** Reinicio total: borra progreso local y exige volver a iniciar sesión con Google. */
+  onFullAppReset?: () => void;
 }
+
+const FULL_RESET_GREEN = '#4ade80';
 
 interface ProgressBarProps {
   label: string;
@@ -202,7 +206,15 @@ function StatsInfoPanel({
   );
 }
 
-export function TopBar({ nodes, deletedNodes, user, theme, onRestoreNode, onResetTestMode }: TopBarProps) {
+export function TopBar({
+  nodes,
+  deletedNodes,
+  user,
+  theme,
+  onRestoreNode,
+  onResetTestMode,
+  onFullAppReset,
+}: TopBarProps) {
   const [infoOpen, setInfoOpen] = useState(false);
   const [underworldOpen, setUnderworldOpen] = useState(false);
   const [sessionTooltipVisible, setSessionTooltipVisible] = useState(false);
@@ -323,7 +335,8 @@ export function TopBar({ nodes, deletedNodes, user, theme, onRestoreNode, onRese
 
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Reiniciar modo prueba"
+            accessibilityLabel="Reiniciar nodos locales"
+            accessibilityHint="Borra el progreso en este dispositivo sin cerrar sesión"
             onPress={onResetTestMode}
             style={({ pressed }) => [
               styles.resetBtn,
@@ -336,6 +349,24 @@ export function TopBar({ nodes, deletedNodes, user, theme, onRestoreNode, onRese
             disabled={!onResetTestMode}
           >
             <Text style={[styles.resetBtnText, { color: theme.secondary }]}>↺</Text>
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Reinicio total"
+            accessibilityHint="Borra todo el progreso local y cierra sesión de Google"
+            onPress={onFullAppReset}
+            style={({ pressed }) => [
+              styles.resetBtn,
+              {
+                borderColor: FULL_RESET_GREEN,
+                backgroundColor: pressed ? 'rgba(74, 222, 128, 0.2)' : 'transparent',
+                opacity: onFullAppReset ? 1 : 0.35,
+              },
+            ]}
+            disabled={!onFullAppReset}
+          >
+            <Text style={[styles.fullResetBtnText, { color: FULL_RESET_GREEN }]}>G</Text>
           </Pressable>
 
           <Pressable
@@ -552,6 +583,11 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
     lineHeight: 20,
+  },
+  fullResetBtnText: {
+    fontSize: 15,
+    fontWeight: '900',
+    lineHeight: 18,
   },
   infoBtnText: {
     fontSize: 13,

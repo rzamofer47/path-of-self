@@ -9,7 +9,7 @@ import 'react-native-reanimated';
 
 import { AppProvider, useAppContext } from '@/src/context/AppContext';
 import { isSupabaseEnabled } from '@/src/config/env';
-import { isTutorialCompleted } from '@/src/storage/localPrefs';
+import { isTutorialCompleted, isSkipOnboardingAfterFullReset } from '@/src/storage/localPrefs';
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -48,7 +48,7 @@ export default function RootLayout() {
 }
 
 function RootLayoutNav() {
-  const { user, loading, theme, authAccount } = useAppContext();
+  const { user, loading, theme, authAccount, refreshUser } = useAppContext();
   const segments = useSegments();
   const router = useRouter();
   const [routingReady, setRoutingReady] = useState(false);
@@ -58,6 +58,7 @@ function RootLayoutNav() {
 
     void (async () => {
       const tutorialDone = await isTutorialCompleted();
+      const skipOnboardingAfterReset = await isSkipOnboardingAfterFullReset();
       const inOnboarding = segments[0] === 'onboarding';
       const inTutorial = segments[0] === 'tutorial';
       const inLogin = segments[0] === 'login';
@@ -75,7 +76,20 @@ function RootLayoutNav() {
         return;
       }
 
-      if (!user?.onboardingComplete && !inOnboarding && !inLogin && !inAuth) {
+      if (isSupabaseEnabled() && authAccount && user === null && !inLogin && !inAuth) {
+        void refreshUser();
+        setRoutingReady(false);
+        return;
+      }
+
+      if (
+        user &&
+        !user.onboardingComplete &&
+        !skipOnboardingAfterReset &&
+        !inOnboarding &&
+        !inLogin &&
+        !inAuth
+      ) {
         router.replace('/onboarding');
       } else if (user?.onboardingComplete && inOnboarding) {
         router.replace('/(tabs)');
@@ -94,7 +108,7 @@ function RootLayoutNav() {
 
       setRoutingReady(true);
     })();
-  }, [user, loading, segments, router, authAccount]);
+  }, [user, loading, segments, router, authAccount, refreshUser]);
 
   if (loading || !routingReady) {
     return (

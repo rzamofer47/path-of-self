@@ -17,6 +17,7 @@ export interface NodeMenuCapabilities {
   canDailyVerify: boolean;
   canShowInfo: boolean;
   canDelete: boolean;
+  canRename: boolean;
 }
 
 /** Nodo raíz madre (persistido), incluye legacy con layer incorrecto en BD. */
@@ -77,6 +78,14 @@ export function isDeletableNode(node: SkillNode): boolean {
   return node.id > 0 && !isRootNode(node) && !isDormantNode(node);
 }
 
+/** Renombrar: nodos custom o wildcard forjados (no raíz, catálogo ni sombra). */
+export function isRenamableNode(node: SkillNode): boolean {
+  if (node.id <= 0 || node.isDeleted) return false;
+  if (isRootNode(node)) return false;
+  if (node.layer === 'locked' || node.layer === 'guide' || node.layer === 'dormant') return false;
+  return node.layer === 'custom' || node.layer === 'wildcard';
+}
+
 export function getNodeMenuCapabilities(node: SkillNode): NodeMenuCapabilities {
   const isRoot = isRootNode(node);
   const isDormant = isDormantNode(node);
@@ -96,5 +105,6 @@ export function getNodeMenuCapabilities(node: SkillNode): NodeMenuCapabilities {
     canDailyVerify: node.id > 0 && isCustom && !isDormant,
     canShowInfo: !isRoot,
     canDelete: isDeletableNode(node),
+    canRename: isRenamableNode(node),
   };
 }

@@ -1,13 +1,14 @@
 {
   "expo": {
     "name": "Path of Self",
-    "slug": "rpg-skill-tree",
+    "slug": "pathself",
     "version": "1.0.0",
     "description": "Gamified personal development RPG skill tree",
     "extra": {
       "eas": {
-        "projectId": "REEMPLAZAR_TRAS_eas_init"
-      }
+        "projectId": "06de8fb0-0366-4800-babc-cd709dc5c6ca"
+      },
+      "router": {}
     },
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -54,6 +55,7 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "owner": "rzamofer47"
   }
 }

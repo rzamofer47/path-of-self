@@ -72,10 +72,11 @@ interface TreeCanvasProps {
   theme: AppTheme;
   user: User | null;
   onAddXp: (nodeId: number) => void;
-  onDailyVerify: (nodeId: number, calidad: CalidadSesion) => void | Promise<void>;
+  onDailyVerify: (nodeId: number, calidad: CalidadSesion) => boolean | Promise<boolean>;
   onAddSubSkill: (parent: SkillNode) => void;
   onAdoptGuide: (guide: SkillNode) => void;
   onDeleteNode: (node: SkillNode) => void;
+  onRenameNode: (node: SkillNode) => void;
   onConfigureWildcard: (node: SkillNode, name: string, decayCategoria?: DecayCategoria) => void;
   onPersistPosition?: () => Promise<void>;
   focusNodeIds?: number[];
@@ -148,6 +149,7 @@ export function TreeCanvas({
   onAddSubSkill,
   onAdoptGuide,
   onDeleteNode,
+  onRenameNode,
   onConfigureWildcard,
   onPersistPosition,
   focusNodeIds,
@@ -694,7 +696,19 @@ export function TreeCanvas({
         ...prev,
         [nodeId]: calidad,
       }));
-      await onDailyVerify(nodeId, calidad);
+      const ok = await onDailyVerify(nodeId, calidad);
+      if (!ok) {
+        setVerifiedOptimistic((prev) => {
+          const next = { ...prev };
+          delete next[nodeId];
+          return next;
+        });
+        setVerifiedOptimisticQuality((prev) => {
+          const next = { ...prev };
+          delete next[nodeId];
+          return next;
+        });
+      }
     },
     [qualityPickerNodeId, onDailyVerify]
   );
@@ -955,6 +969,7 @@ export function TreeCanvas({
                   onAddSubSkill={onAddSubSkill}
                   onAdoptGuide={onAdoptGuide}
                   onDeleteNode={onDeleteNode}
+                  onRenameNode={onRenameNode}
                   onShowInfo={handleShowInfo}
                   detailMode={detailMode}
                   hideRadialMenu
@@ -975,6 +990,7 @@ export function TreeCanvas({
                   onAddSubSkill={onAddSubSkill}
                   onAdoptGuide={onAdoptGuide}
                   onDeleteNode={onDeleteNode}
+                  onRenameNode={onRenameNode}
                   onShowInfo={handleShowInfo}
                   detailMode={detailMode}
                   hideRadialMenu
@@ -1017,6 +1033,7 @@ export function TreeCanvas({
                   onAddSubSkill={onAddSubSkill}
                   onAdoptGuide={onAdoptGuide}
                   onDeleteNode={onDeleteNode}
+                  onRenameNode={onRenameNode}
                   onShowInfo={handleShowInfo}
                   onMotherNodePress={handleMotherNodePress}
                   detailMode={detailMode}
@@ -1061,6 +1078,7 @@ export function TreeCanvas({
                   onAddSubSkill={onAddSubSkill}
                   onAdoptGuide={onAdoptGuide}
                   onDeleteNode={onDeleteNode}
+                  onRenameNode={onRenameNode}
                   onShowInfo={handleShowInfo}
                   onMotherNodePress={handleMotherNodePress}
                   detailMode={detailMode}
@@ -1074,7 +1092,7 @@ export function TreeCanvas({
             </View>
 
             {detailMode && (
-              <View style={styles.labelsLayer} pointerEvents="none">
+              <View style={styles.labelsLayer} pointerEvents="box-none">
                 {labelNodes.map((node) => {
                   const visibility = labelVisibilityMap.get(node.id);
                   if (!visibility) return null;
@@ -1087,6 +1105,7 @@ export function TreeCanvas({
                       user={user}
                       visibility={visibility}
                       elevated={node.id === activeNodeId}
+                      onRenameNode={onRenameNode}
                     />
                   );
                 })}
@@ -1118,6 +1137,7 @@ export function TreeCanvas({
                 onAddSubSkill={onAddSubSkill}
                 onAdoptGuide={onAdoptGuide}
                 onDeleteNode={onDeleteNode}
+                  onRenameNode={onRenameNode}
                 onShowInfo={handleShowInfo}
               />
             )}
@@ -1133,6 +1153,7 @@ export function TreeCanvas({
                 onAddSubSkill={onAddSubSkill}
                 onAdoptGuide={onAdoptGuide}
                 onDeleteNode={onDeleteNode}
+                  onRenameNode={onRenameNode}
                 onShowInfo={handleShowInfo}
               />
             )}
@@ -1148,6 +1169,7 @@ export function TreeCanvas({
                 onAddSubSkill={onAddSubSkill}
                 onAdoptGuide={onAdoptGuide}
                 onDeleteNode={onDeleteNode}
+                  onRenameNode={onRenameNode}
                 onShowInfo={handleShowInfo}
               />
             )}
