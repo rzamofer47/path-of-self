@@ -137,6 +137,20 @@ export function computeFocusTransform(
   };
 }
 
+export function computeMapCenterTransform(
+  viewportWidth: number,
+  viewportHeight: number,
+  scale: number
+): CanvasTransform {
+  const centerX = CANVAS_WIDTH / 2;
+  const centerY = CANVAS_HEIGHT / 2;
+  return {
+    scale,
+    translateX: viewportWidth / 2 - centerX * scale,
+    translateY: viewportHeight / 2 - centerY * scale,
+  };
+}
+
 export function computeFullCanvasTransform(
   viewportWidth: number,
   viewportHeight: number,

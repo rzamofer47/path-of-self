@@ -204,13 +204,18 @@ export async function updateNodeName(
   if (isRootNode(node)) {
     return { success: false, message: 'Las raíces Nen no se pueden renombrar' };
   }
-  if (node.layer === 'locked' || node.layer === 'guide' || node.layer === 'dormant') {
+  if (node.layer === 'guide' || node.layer === 'dormant') {
     return { success: false, message: 'Este nodo no se puede renombrar' };
+  }
+
+  const updatePayload: { name: string; layer?: string } = { name: trimmed };
+  if (node.layer === 'locked') {
+    updatePayload.layer = 'custom';
   }
 
   const { data: updated, error: updateError } = await supabase
     .from('nodes')
-    .update({ name: trimmed })
+    .update(updatePayload)
     .eq('auth_id', authId)
     .eq('id', nodeId)
     .select('*')
@@ -267,6 +272,22 @@ export async function createCustomNode(
     explicitParentId !== undefined
       ? explicitParentId
       : await findRootParentId(authId, macroArea);
+
+  if (parentId != null) {
+    const { data: parentRow } = await supabase
+      .from('nodes')
+      .select('layer')
+      .eq('auth_id', authId)
+      .eq('id', parentId)
+      .maybeSingle();
+    if (parentRow?.layer === 'locked') {
+      await supabase
+        .from('nodes')
+        .update({ layer: 'custom' })
+        .eq('auth_id', authId)
+        .eq('id', parentId);
+    }
+  }
 
   const { data, error } = await supabase
     .from('nodes')
@@ -510,11 +531,19 @@ export async function softDeleteNode(
     if (isRootNode(node)) {
       return { success: false, message: 'Las raíces permanecen ancladas en la superficie' };
     }
-    if (node.layer === 'locked') {
-      return { success: false, message: 'Los nodos del catálogo no se pueden archivar' };
-    }
     if (node.isDeleted) {
       return { success: false, message: 'Este nodo ya está en el inframundo' };
+    }
+
+    if (node.layer === 'locked') {
+      const { error: promoteError } = await supabase
+        .from('nodes')
+        .update({ layer: 'custom' })
+        .eq('auth_id', authId)
+        .eq('id', nodeId);
+      if (promoteError) {
+        return { success: false, message: promoteError.message };
+      }
     }
 
     const allNodes = await getAllNodes();

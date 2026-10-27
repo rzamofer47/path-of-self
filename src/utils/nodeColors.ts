@@ -1,11 +1,14 @@
 import { MacroArea, SkillNode } from '@/src/types';
+import { getCatalogParentSlug } from '@/src/data/skillCatalogSeeds';
 import { getNenRootPalette, type NodeOrbPalette } from '@/src/config/nenMotherRoots';
 import {
   getNenPaletaForNode,
   nenPaletaToOrbPalette,
   NEN_PALETA,
   resolveNenAxisId,
+  resolveRootMotherAxisId,
 } from '@/src/config/nenConfig';
+import { isRootNode } from '@/src/utils/nodeMenuPolicy';
 import { isWildcardNode } from '@/src/utils/wildcardNodes';
 
 export type { NodeOrbPalette };
@@ -145,14 +148,50 @@ export function getMacroAreaPalette(macroArea: MacroArea, active: boolean): Node
   };
 }
 
+function findNodeBySlug(nodes: SkillNode[], slug: string): SkillNode | null {
+  return nodes.find((n) => n.slug === slug) ?? null;
+}
+
+/** ¿El parent_id almacenado coincide con la jerarquía del catálogo? */
+function isCatalogParentMatch(parent: SkillNode, child: SkillNode): boolean {
+  const childSlug = child.slug;
+  if (!childSlug) return true;
+  const expectedParentSlug = getCatalogParentSlug(childSlug);
+  if (!expectedParentSlug) return true;
+  return parent.slug === expectedParentSlug;
+}
+
 export function resolveParentNode(node: SkillNode, nodes: SkillNode[]): SkillNode | null {
+  const childSlug = node.slug ?? '';
+
   if (node.parentId != null) {
-    const parent = nodes.find((n) => n.id === node.parentId);
-    if (parent) return parent;
+    const linked = nodes.find((n) => n.id === node.parentId);
+    if (linked && isCatalogParentMatch(linked, node)) {
+      return linked;
+    }
   }
+
+  const catalogParentSlug = childSlug ? getCatalogParentSlug(childSlug) : null;
+  if (catalogParentSlug) {
+    const bySlug = findNodeBySlug(nodes, catalogParentSlug);
+    if (bySlug) return bySlug;
+  }
+
+  const axisId = resolveNenAxisId(node, nodes);
+  if (axisId) {
+    const mother = nodes.find(
+      (candidate) =>
+        isRootNode(candidate) && resolveRootMotherAxisId(candidate) === axisId
+    );
+    if (mother) return mother;
+  }
+
   if (node.layer === 'custom' || node.layer === 'guide' || node.layer === 'locked') {
-    return nodes.find((n) => isRootLayer(n) && n.macroArea === node.macroArea) ?? null;
+    if (node.macroArea && node.macroArea !== 'productive') {
+      return nodes.find((n) => isRootLayer(n) && n.macroArea === node.macroArea) ?? null;
+    }
   }
+
   return null;
 }
 

@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo } from 'react';
-import { StyleSheet } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import Animated, {
   Easing,
   useAnimatedProps,
@@ -23,6 +23,7 @@ import {
   isNodeActiveInRoutine,
 } from '@/src/utils/nodeIntensity';
 import { isWildcardNode } from '@/src/utils/wildcardNodes';
+import { buildFullCanvasConnectionLayout, type ConnectionSvgLayout } from '@/src/utils/canvasViewport';
 import {
   CANVAS_HEIGHT,
   CANVAS_WIDTH,
@@ -34,22 +35,22 @@ import {
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
 /** Camino activo (PoE): ambos extremos en rutina. */
-const STROKE_ACTIVE_PATH = 3.5;
-const STROKE_HIGHLIGHTED_PATH = 2.2;
-const STROKE_MUTED_PATH = 1;
-const COLOR_MUTED = '#2c3038';
-const OPACITY_MUTED = 0.42;
-const OPACITY_HIGHLIGHTED = 0.72;
+const STROKE_ACTIVE_PATH = 2;
+const STROKE_HIGHLIGHTED_PATH = 1.4;
+const STROKE_MUTED_PATH = 0.85;
+const COLOR_MUTED = '#4a5568';
+const OPACITY_MUTED = 0.62;
+const OPACITY_HIGHLIGHTED = 0.78;
 
 /** Neblina de guerra: red masiva del catálogo bloqueado. */
 const COLOR_FOG = '#323842';
-const FOG_OPACITY = 0.14;
-const FOG_OPACITY_SIMPLIFIED = 0.26;
-const FOG_STROKE_WIDTH = 0.7;
-const FOG_STROKE_WIDTH_SIMPLIFIED = 0.95;
+const FOG_OPACITY = 0.22;
+const FOG_OPACITY_SIMPLIFIED = 0.28;
+const FOG_STROKE_WIDTH = 0.45;
+const FOG_STROKE_WIDTH_SIMPLIFIED = 0.6;
 
-const OPACITY_ACTIVE = 0.96;
-const GLOW_STROKE = 7;
+const OPACITY_ACTIVE = 0.9;
+const GLOW_STROKE = 3.5;
 const GLOW_OPACITY_MIN = 0.28;
 const GLOW_OPACITY_MAX = 0.55;
 
@@ -62,8 +63,11 @@ interface TreeConnectionsProps {
   theme: AppTheme;
   user: User | null;
   simplified?: boolean;
+  /** Nodo seleccionado: resalta aristas padre↔hijo conectadas. */
+  focusNodeId?: number | null;
   pulseNodeIds?: number[];
   pulseTick?: number;
+  layout?: ConnectionSvgLayout;
 }
 
 function brightPathStroke(node: SkillNode): string {
@@ -104,7 +108,7 @@ function strokeForEdge(
 
 function isFogOfWarEdge(node: SkillNode | undefined): boolean {
   if (!node) return false;
-  return node.id < 0 || node.layer === 'dormant';
+  return node.layer === 'dormant';
 }
 
 function isEdgeOnActivePath(
@@ -121,14 +125,25 @@ function isEdgeOnActivePath(
   );
 }
 
+function isHierarchyFocusEdge(
+  parent: SkillNode | undefined,
+  child: SkillNode | undefined,
+  focusNodeId: number | null | undefined
+): boolean {
+  if (focusNodeId == null || !parent || !child) return false;
+  return parent.id === focusNodeId || child.id === focusNodeId;
+}
+
 function classifyEdgeKind(
   parent: SkillNode | undefined,
   child: SkillNode | undefined,
   nodes: SkillNode[],
   user: User | null,
-  simplified: boolean
+  simplified: boolean,
+  focusNodeId?: number | null
 ): EdgeKind {
   if (simplified) return 'fog';
+  if (isHierarchyFocusEdge(parent, child, focusNodeId)) return 'highlighted';
   if (isEdgeOnActivePath(parent, child, nodes, user)) return 'active';
   if (
     parent &&
@@ -137,8 +152,14 @@ function classifyEdgeKind(
     !isFogOfWarEdge(child) &&
     !isWildcardNode(parent) &&
     !isWildcardNode(child) &&
-    isNodeActiveInRoutine(parent, nodes, user)
+    (isNodeActiveInRoutine(parent, nodes, user) || isNodeActiveInRoutine(child, nodes, user))
   ) {
+    if (
+      isNodeActiveInRoutine(parent, nodes, user) &&
+      isNodeActiveInRoutine(child, nodes, user)
+    ) {
+      return 'active';
+    }
     return 'highlighted';
   }
   if (isFogOfWarEdge(parent) || isFogOfWarEdge(child)) return 'fog';
@@ -146,7 +167,15 @@ function classifyEdgeKind(
 }
 
 /** Resplandor difuso bajo el hilo activo (estilo PoE). */
-function ActivePathGlow({ d, stroke }: { d: string; stroke: string }) {
+function ActivePathGlow({
+  d,
+  stroke,
+  strokeScale,
+}: {
+  d: string;
+  stroke: string;
+  strokeScale: number;
+}) {
   const opacity = useSharedValue(GLOW_OPACITY_MIN);
 
   useEffect(() => {
@@ -165,32 +194,48 @@ function ActivePathGlow({ d, stroke }: { d: string; stroke: string }) {
     <AnimatedPath
       d={d}
       stroke={stroke}
-      strokeWidth={GLOW_STROKE}
+      strokeWidth={GLOW_STROKE * strokeScale}
       strokeLinecap="round"
       strokeLinejoin="round"
       fill="none"
-      filter="url(#connectionActiveGlow)"
+      {...(Platform.OS === 'web' ? { filter: 'url(#connectionActiveGlow)' } : {})}
       animatedProps={animatedProps}
     />
   );
 }
 
-function GenerationPulsePath({ d, stroke, pulseTick }: { d: string; stroke: string; pulseTick: number }) {
+function GenerationPulsePath({
+  d,
+  stroke,
+  pulseTick,
+  strokeScale,
+}: {
+  d: string;
+  stroke: string;
+  pulseTick: number;
+  strokeScale: number;
+}) {
   const opacity = useSharedValue(0);
-  const width = useSharedValue(STROKE_MUTED_PATH);
+  const width = useSharedValue(STROKE_MUTED_PATH * strokeScale);
 
   useEffect(() => {
     opacity.value = 0;
-    width.value = STROKE_MUTED_PATH;
+    width.value = STROKE_MUTED_PATH * strokeScale;
     opacity.value = withSequence(
       withTiming(1, { duration: 120, easing: Easing.out(Easing.quad) }),
       withTiming(0, { duration: 680, easing: Easing.in(Easing.quad) })
     );
     width.value = withSequence(
-      withTiming(STROKE_ACTIVE_PATH + 2, { duration: 280, easing: Easing.out(Easing.quad) }),
-      withTiming(STROKE_MUTED_PATH, { duration: 520, easing: Easing.in(Easing.quad) })
+      withTiming((STROKE_ACTIVE_PATH + 2) * strokeScale, {
+        duration: 280,
+        easing: Easing.out(Easing.quad),
+      }),
+      withTiming(STROKE_MUTED_PATH * strokeScale, {
+        duration: 520,
+        easing: Easing.in(Easing.quad),
+      })
     );
-  }, [pulseTick, opacity, width]);
+  }, [pulseTick, opacity, width, strokeScale]);
 
   const animatedProps = useAnimatedProps(() => ({
     strokeOpacity: opacity.value,
@@ -207,6 +252,27 @@ function GenerationPulsePath({ d, stroke, pulseTick }: { d: string; stroke: stri
       animatedProps={animatedProps}
     />
   );
+}
+
+function shouldRenderEdge(
+  parent: SkillNode | undefined,
+  child: SkillNode | undefined,
+  _nodes: SkillNode[],
+  _user: User | null
+): boolean {
+  if (!parent || !child) return false;
+  if (isFogOfWarEdge(parent) && isFogOfWarEdge(child)) return false;
+  return true;
+}
+
+function shouldUseOrbitArc(
+  parent: SkillNode | undefined,
+  fromRadius: number,
+  toRadius: number,
+  simplified: boolean
+): boolean {
+  if (simplified || !parent || !isRootLayer(parent)) return false;
+  return toRadius > fromRadius + 40 && Math.abs(fromRadius - toRadius) < 12;
 }
 
 function buildConnectionPath(
@@ -249,10 +315,14 @@ export function TreeConnections({
   theme: _theme,
   user,
   simplified = false,
+  focusNodeId = null,
   pulseNodeIds = [],
   pulseTick = 0,
+  layout: layoutProp,
 }: TreeConnectionsProps) {
+  const layout = layoutProp ?? buildFullCanvasConnectionLayout();
   const pulseSet = useMemo(() => new Set(pulseNodeIds), [pulseNodeIds]);
+  const strokeScale = layout.strokeScale;
   const hierarchyEdges = useMemo(
     () => edgesProp ?? computeHierarchicalEdges(nodes),
     [edgesProp, nodes]
@@ -285,12 +355,14 @@ export function TreeConnections({
 
       const parent = nodeById.get(edge.fromId);
       const child = nodeById.get(edge.toId);
-      const kind = classifyEdgeKind(parent, child, nodes, user, simplified);
+      if (!shouldRenderEdge(parent, child, nodes, user)) continue;
+
+      const kind = classifyEdgeKind(parent, child, nodes, user, simplified, focusNodeId);
       const endpoints = getConnectionEndpoints(from, to);
       const orbitCenter = { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2 };
       const fromRadius = Math.hypot(from.x - orbitCenter.x, from.y - orbitCenter.y);
       const toRadius = Math.hypot(to.x - orbitCenter.x, to.y - orbitCenter.y);
-      const sameOrbit = Math.abs(fromRadius - toRadius) < 12;
+      const sameOrbit = shouldUseOrbitArc(parent, fromRadius, toRadius, simplified);
       const orbitRadius = Math.max(80, (fromRadius + toRadius) / 2);
       const pathData = buildConnectionPath(
         endpoints.x1,
@@ -321,7 +393,7 @@ export function TreeConnections({
     }
 
     return { fog, muted, highlighted, active };
-  }, [hierarchyEdges, centers, nodeById, nodes, user, simplified]);
+  }, [hierarchyEdges, centers, nodeById, nodes, user, simplified, focusNodeId]);
 
   const pulseSegments = useMemo(() => {
     if (pulseTick <= 0 || pulseSet.size === 0 || simplified) return [];
@@ -343,7 +415,7 @@ export function TreeConnections({
       const orbitCenter = { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2 };
       const fromRadius = Math.hypot(from.x - orbitCenter.x, from.y - orbitCenter.y);
       const toRadius = Math.hypot(to.x - orbitCenter.x, to.y - orbitCenter.y);
-      const sameOrbit = Math.abs(fromRadius - toRadius) < 12;
+      const sameOrbit = shouldUseOrbitArc(parent, fromRadius, toRadius, simplified);
       const orbitRadius = Math.max(80, (fromRadius + toRadius) / 2);
       const pathData = buildConnectionPath(
         endpoints.x1,
@@ -373,13 +445,28 @@ export function TreeConnections({
   const fogOpacity = simplified ? FOG_OPACITY_SIMPLIFIED : FOG_OPACITY;
   const fogWidth = simplified ? FOG_STROKE_WIDTH_SIMPLIFIED : FOG_STROKE_WIDTH;
 
+  if (layout.rasterWidth <= 0 || layout.rasterHeight <= 0) {
+    return null;
+  }
+
   return (
-    <Svg
-      width={CANVAS_WIDTH}
-      height={CANVAS_HEIGHT}
-      style={StyleSheet.absoluteFill}
+    <View
+      style={[
+        styles.wrap,
+        {
+          width: layout.rasterWidth,
+          height: layout.rasterHeight,
+          transform: [{ scale: layout.wrapScale }],
+        },
+      ]}
       pointerEvents="none"
     >
+      <Svg
+        width={layout.rasterWidth}
+        height={layout.rasterHeight}
+        viewBox={layout.viewBox}
+        pointerEvents="none"
+      >
       <Defs>
         <Filter id="connectionActiveGlow" x="-60%" y="-60%" width="220%" height="220%">
           <FeGaussianBlur in="SourceGraphic" stdDeviation="4.5" />
@@ -391,7 +478,7 @@ export function TreeConnections({
           key={`fog-${edge.fromId}-${edge.toId}`}
           d={pathData}
           stroke={COLOR_FOG}
-          strokeWidth={fogWidth}
+          strokeWidth={fogWidth * strokeScale}
           strokeOpacity={fogOpacity}
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -400,12 +487,12 @@ export function TreeConnections({
       ))}
 
       {!simplified &&
-        edgeLayers.muted.map(({ edge, pathData }) => (
+        edgeLayers.muted.map(({ edge, pathData, strokeColor }) => (
           <Path
             key={`muted-${edge.fromId}-${edge.toId}`}
             d={pathData}
-            stroke={COLOR_MUTED}
-            strokeWidth={STROKE_MUTED_PATH}
+            stroke={strokeColor}
+            strokeWidth={STROKE_MUTED_PATH * strokeScale}
             strokeOpacity={OPACITY_MUTED}
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -419,7 +506,7 @@ export function TreeConnections({
             key={`highlighted-${edge.fromId}-${edge.toId}`}
             d={pathData}
             stroke={strokeColor}
-            strokeWidth={STROKE_HIGHLIGHTED_PATH}
+            strokeWidth={STROKE_HIGHLIGHTED_PATH * strokeScale}
             strokeOpacity={OPACITY_HIGHLIGHTED}
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -430,11 +517,11 @@ export function TreeConnections({
       {!simplified &&
         edgeLayers.active.map(({ edge, pathData, strokeColor, glowColor }) => (
           <Fragment key={`active-${edge.fromId}-${edge.toId}`}>
-            <ActivePathGlow d={pathData} stroke={glowColor} />
+            <ActivePathGlow d={pathData} stroke={glowColor} strokeScale={strokeScale} />
             <Path
               d={pathData}
               stroke={strokeColor}
-              strokeWidth={STROKE_ACTIVE_PATH}
+              strokeWidth={STROKE_ACTIVE_PATH * strokeScale}
               strokeOpacity={OPACITY_ACTIVE}
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -445,8 +532,25 @@ export function TreeConnections({
 
       {!simplified &&
         pulseSegments.map(({ key, pathData, stroke }) => (
-          <GenerationPulsePath key={key} d={pathData} stroke={stroke} pulseTick={pulseTick} />
+          <GenerationPulsePath
+            key={key}
+            d={pathData}
+            stroke={stroke}
+            pulseTick={pulseTick}
+            strokeScale={strokeScale}
+          />
         ))}
-    </Svg>
+      </Svg>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  wrap: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    zIndex: 2,
+    transformOrigin: 'left top',
+  },
+});

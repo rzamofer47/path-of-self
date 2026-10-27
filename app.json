@@ -2,7 +2,7 @@
   "expo": {
     "name": "Path of Self",
     "slug": "pathself",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "Gamified personal development RPG skill tree",
     "extra": {
       "eas": {

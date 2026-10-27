@@ -231,8 +231,8 @@ export function countOrbitSiblings(nodes: SkillNode[], parent: SkillNode): numbe
 
 const DEFAULT_VERTIENTE_BY_MACRO: Record<MacroArea, VertienteId> = {
   physical: 'gimnasio',
-  productive: 'coding',
-  mental_emotional: 'nervioso',
+  productive: 'recursos',
+  mental_emotional: 'lectura',
   intellectual: 'guitar',
 };
 

@@ -23,7 +23,6 @@ import { axisIdsInActiveDecay, NenAxisDecayInsight } from '@/src/utils/nenDecayE
 import { AppTheme, CalidadSesion, DecayCategoria, SkillNode, User } from '@/src/types';
 import {
   CANVAS_ZOOM,
-  centerCanvasTranslation,
   clampZoom,
   computeFitScale,
   isDetailZoom,
@@ -31,10 +30,11 @@ import {
 } from '@/src/utils/canvasZoom';
 import {
   computeFocusTransform,
-  computeFullCanvasTransform,
+  computeMapCenterTransform,
   pickFocusDayNodes,
 } from '@/src/utils/canvasFocus';
-import { isDraggableNode, isRootNode, isShadowLayerNode } from '@/src/utils/nodeMenuPolicy';
+import { isDraggableNode, isRootNode, isShadowLayerNode, normalizeTreeDisplayNode, dedupeVisibleTreeNodes } from '@/src/utils/nodeMenuPolicy';
+import { isNodeActiveInRoutine } from '@/src/utils/nodeIntensity';
 import { isDailyVerifiedToday } from '@/src/utils/dailyVerification';
 import { isWildcardNode } from '@/src/utils/wildcardNodes';
 import { MAP_ORIGIN_X, MAP_ORIGIN_Y } from '@/src/utils/mapGeometry';
@@ -52,8 +52,8 @@ import {
   mergeNodeWithDisplayPosition,
 } from '@/src/utils/forceDirectedLayout';
 
-import { CanvasNodeMenuOverlay } from './CanvasNodeMenuOverlay';
 import { CustomNode } from './CustomNode';
+import { CanvasNodeMenuOverlay } from './CanvasNodeMenuOverlay';
 import { LockedCatalogNode } from './LockedCatalogNode';
 import { NodeInfoModal } from './NodeInfoModal';
 import { SessionQualityModal } from './SessionQualityModal';
@@ -84,9 +84,18 @@ interface TreeCanvasProps {
 }
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+const ESTIMATED_VIEWPORT_H = SCREEN_H * 0.72;
 const CANVAS_PAN_MIN_DISTANCE = 12;
 const PAN_DISMISS_MENU_PX = 20;
 const DEFAULT_START_SCALE = 0.58;
+
+function buildInitialCamera(viewportWidth = SCREEN_W, viewportHeight = ESTIMATED_VIEWPORT_H) {
+  const fit = computeFitScale(viewportWidth, viewportHeight);
+  const scale = clampZoom(Math.max(fit * 1.2, DEFAULT_START_SCALE), fit, CANVAS_ZOOM.MAX);
+  return computeMapCenterTransform(viewportWidth, viewportHeight, scale);
+}
+
+const INITIAL_CAMERA = buildInitialCamera();
 const CENTER_NEN_CHART_SIZE = 400;
 const CENTER_NEN_SIZE = getNenRadarFootprintSize(CENTER_NEN_CHART_SIZE);
 const CENTER_NEN_OFFSET = (CANVAS_WIDTH - CENTER_NEN_SIZE) / 2;
@@ -157,6 +166,12 @@ export function TreeCanvas({
 }: TreeCanvasProps) {
   const hatsu = useNenHatsu();
   const [activeNodeId, setActiveNodeId] = useState<number | null>(null);
+  /** Posición congelada al abrir menú — el orbe no salta aunque cambie el layout. */
+  const [activeNodeAnchor, setActiveNodeAnchor] = useState<{
+    nodeId: number;
+    posX: number;
+    posY: number;
+  } | null>(null);
   const [infoNodeId, setInfoNodeId] = useState<number | null>(null);
   const [infoNodeSnapshot, setInfoNodeSnapshot] = useState<SkillNode | null>(null);
   const infoOpenRef = useRef(false);
@@ -171,7 +186,12 @@ export function TreeCanvas({
   positionOverridesRef.current = positionOverrides;
   const [viewportSize, setViewportSize] = useState({ width: SCREEN_W, height: SCREEN_H * 0.72 });
   const [minScale, setMinScale] = useState(0.18);
-  const [canvasScale, setCanvasScale] = useState(DEFAULT_START_SCALE);
+  const [canvasScale, setCanvasScale] = useState(INITIAL_CAMERA.scale);
+  const [viewCamera, setViewCamera] = useState({
+    translateX: INITIAL_CAMERA.translateX,
+    translateY: INITIAL_CAMERA.translateY,
+    scale: INITIAL_CAMERA.scale,
+  });
   const layoutReady = useRef(false);
   const viewportSizeRef = useRef({ width: SCREEN_W, height: SCREEN_H * 0.72 });
   const [xpFlashByNode, setXpFlashByNode] = useState<
@@ -196,33 +216,42 @@ export function TreeCanvas({
   const [qualityPickerNodeId, setQualityPickerNodeId] = useState<number | null>(null);
   const [celebratingAxis, setCelebratingAxis] = useState<NenAxisId | null>(null);
   const [celebrationTick, setCelebrationTick] = useState(0);
-  const defaultCameraRef = useRef({ scale: DEFAULT_START_SCALE, translateX: 0, translateY: 0 });
+  const defaultCameraRef = useRef({
+    scale: INITIAL_CAMERA.scale,
+    translateX: INITIAL_CAMERA.translateX,
+    translateY: INITIAL_CAMERA.translateY,
+  });
 
-  const translateX = useSharedValue(0);
-  const translateY = useSharedValue(0);
-  const scale = useSharedValue(DEFAULT_START_SCALE);
-  const savedX = useSharedValue(0);
-  const savedY = useSharedValue(0);
-  const savedScale = useSharedValue(DEFAULT_START_SCALE);
+  const translateX = useSharedValue(INITIAL_CAMERA.translateX);
+  const translateY = useSharedValue(INITIAL_CAMERA.translateY);
+  const scale = useSharedValue(INITIAL_CAMERA.scale);
+  const savedX = useSharedValue(INITIAL_CAMERA.translateX);
+  const savedY = useSharedValue(INITIAL_CAMERA.translateY);
+  const savedScale = useSharedValue(INITIAL_CAMERA.scale);
   const minScaleSv = useSharedValue(0.18);
+  const menuDismissedDuringPan = useSharedValue(false);
 
   const detailMode = isDetailZoom(canvasScale);
 
   const displayNodes = useMemo(() => {
-    return nodes.map((node) => {
+    const normalized = nodes.map((node) => {
       const optimisticAt = verifiedOptimistic[node.id];
-      if (!optimisticAt) return node;
+      let patched: SkillNode = node;
 
-      const patched: SkillNode = {
-        ...node,
-        dailyVerifiedAt: optimisticAt,
-        sessionQuality: verifiedOptimisticQuality[node.id] ?? node.sessionQuality,
-      };
-      if (node.layer === 'locked') {
-        patched.layer = 'custom';
+      if (optimisticAt) {
+        patched = {
+          ...node,
+          dailyVerifiedAt: optimisticAt,
+          sessionQuality: verifiedOptimisticQuality[node.id] ?? node.sessionQuality,
+        };
+        if (node.layer === 'locked') {
+          patched = { ...patched, layer: 'custom' };
+        }
       }
-      return patched;
+
+      return normalizeTreeDisplayNode(patched);
     });
+    return dedupeVisibleTreeNodes(normalized);
   }, [nodes, verifiedOptimistic, verifiedOptimisticQuality]);
 
   useEffect(() => {
@@ -395,16 +424,17 @@ export function TreeCanvas({
   }, [displayNodes, withDisplayPosition]);
 
   const connectionNodes = useMemo(
-    () => [...lockedCatalog, ...foregroundNodes, ...shadowGuides],
-    [lockedCatalog, foregroundNodes, shadowGuides]
+    () =>
+      displayNodes
+        .filter((node) => !node.isDeleted && node.layer !== 'dormant' && node.id > 0)
+        .map(withDisplayPosition),
+    [displayNodes, withDisplayPosition]
   );
 
   const shadowLayerElevated =
     activeNodeId !== null && shadowGuides.some((node) => node.id === activeNodeId);
 
   const canvasMenuOpen = activeNodeId !== null;
-  const showMenuOverlay =
-    detailMode && canvasMenuOpen && draggingNodeId !== activeNodeId;
 
   const labelNodes = useMemo(() => {
     if (!detailMode) return [];
@@ -418,26 +448,56 @@ export function TreeCanvas({
     [labelNodes, activeNodeId, detailMode]
   );
 
-  const activeForegroundNode =
-    activeNodeId != null ? foregroundNodes.find((node) => node.id === activeNodeId) ?? null : null;
-  const inactiveForegroundNodes =
-    activeForegroundNode != null
-      ? foregroundNodes.filter((node) => node.id !== activeForegroundNode.id)
-      : foregroundNodes;
-  const activeCatalogNode =
-    activeNodeId != null ? lockedCatalog.find((node) => node.id === activeNodeId) ?? null : null;
-  const inactiveLockedCatalog =
-    activeCatalogNode != null
-      ? lockedCatalog.filter((node) => node.id !== activeCatalogNode.id)
-      : lockedCatalog;
-  const activeShadowNode =
-    activeNodeId != null ? shadowGuides.find((node) => node.id === activeNodeId) ?? null : null;
-  const inactiveShadowGuides =
-    activeShadowNode != null
-      ? shadowGuides.filter((node) => node.id !== activeShadowNode.id)
-      : shadowGuides;
+  const applyActiveAnchor = useCallback(
+    (node: SkillNode): SkillNode => {
+      if (
+        activeNodeId === node.id &&
+        activeNodeAnchor != null &&
+        activeNodeAnchor.nodeId === node.id
+      ) {
+        return { ...node, posX: activeNodeAnchor.posX, posY: activeNodeAnchor.posY };
+      }
+      return node;
+    },
+    [activeNodeAnchor, activeNodeId]
+  );
 
-  const closeMenu = useCallback(() => setActiveNodeId(null), []);
+  const activeNodeForMenu = useMemo(() => {
+    if (activeNodeId == null || activeNodeAnchor == null) return null;
+    if (activeNodeAnchor.nodeId !== activeNodeId) return null;
+    const live =
+      displayNodes.find((node) => node.id === activeNodeId) ??
+      nodes.find((node) => node.id === activeNodeId);
+    if (!live) return null;
+    return withDisplayPosition(
+      normalizeTreeDisplayNode({
+        ...live,
+        posX: activeNodeAnchor.posX,
+        posY: activeNodeAnchor.posY,
+      })
+    );
+  }, [activeNodeId, activeNodeAnchor, displayNodes, nodes, withDisplayPosition]);
+
+  const closeMenu = useCallback(() => {
+    setActiveNodeId(null);
+    setActiveNodeAnchor(null);
+  }, []);
+
+  const lockedCatalogToRender = useMemo(() => {
+    if (detailMode) {
+      return lockedCatalog;
+    }
+
+    return lockedCatalog.filter(
+      (node) =>
+        isNodeActiveInRoutine(node, connectionNodes, user) ||
+        connectionNodes.some(
+          (child) =>
+            child.parentId === node.id &&
+            isNodeActiveInRoutine(child, connectionNodes, user)
+        )
+    );
+  }, [connectionNodes, detailMode, lockedCatalog, user]);
 
   const infoNode = useMemo(() => {
     if (infoNodeId == null) return null;
@@ -456,8 +516,9 @@ export function TreeCanvas({
     infoOpenRef.current = false;
   }, []);
 
-  const syncCanvasScale = useCallback((nextScale: number) => {
-    setCanvasScale(nextScale);
+  const syncViewCamera = useCallback((tx: number, ty: number, s: number) => {
+    setViewCamera({ translateX: tx, translateY: ty, scale: s });
+    setCanvasScale(s);
   }, []);
 
   const applyViewportLayout = useCallback(
@@ -474,20 +535,24 @@ export function TreeCanvas({
       if (!layoutReady.current) {
         layoutReady.current = true;
         const startScale = clampZoom(Math.max(fit * 1.2, DEFAULT_START_SCALE), fit, CANVAS_ZOOM.MAX);
-        const t = centerCanvasTranslation(width, height, startScale);
+        const center = computeMapCenterTransform(width, height, startScale);
         scale.value = startScale;
-        translateX.value = t.x;
-        translateY.value = t.y;
+        translateX.value = center.translateX;
+        translateY.value = center.translateY;
         savedScale.value = startScale;
-        savedX.value = t.x;
-        savedY.value = t.y;
-        defaultCameraRef.current = { scale: startScale, translateX: t.x, translateY: t.y };
-        setCanvasScale(startScale);
+        savedX.value = center.translateX;
+        savedY.value = center.translateY;
+        defaultCameraRef.current = {
+          scale: startScale,
+          translateX: center.translateX,
+          translateY: center.translateY,
+        };
+        syncViewCamera(center.translateX, center.translateY, startScale);
       } else if (sizeChanged) {
         minScaleSv.value = fit;
       }
     },
-    [minScaleSv, savedScale, savedX, savedY, scale, translateX, translateY]
+    [minScaleSv, savedScale, savedX, savedY, scale, syncViewCamera, translateX, translateY]
   );
 
   const handleViewportLayout = useCallback(
@@ -519,9 +584,9 @@ export function TreeCanvas({
       savedScale.value = next;
       savedX.value = t.x;
       savedY.value = t.y;
-      setCanvasScale(next);
+      syncViewCamera(t.x, t.y, next);
     },
-    [minScale, scale, translateX, translateY, savedScale, savedX, savedY, viewportSize]
+    [minScale, scale, syncViewCamera, translateX, translateY, savedScale, savedX, savedY, viewportSize]
   );
 
   const handleZoomIn = useCallback(() => {
@@ -549,9 +614,9 @@ export function TreeCanvas({
       savedScale.value = targetScale;
       savedX.value = targetX;
       savedY.value = targetY;
-      setCanvasScale(targetScale);
+      syncViewCamera(targetX, targetY, targetScale);
     },
-    [savedScale, savedX, savedY, scale, translateX, translateY]
+    [savedScale, savedX, savedY, scale, syncViewCamera, translateX, translateY]
   );
 
   const applyFocusToNodes = useCallback(
@@ -571,55 +636,51 @@ export function TreeCanvas({
   );
 
   const handleToggleFocus = useCallback(() => {
-    if (focusModeActive) {
-      const full = computeFullCanvasTransform(
-        viewportSize.width,
-        viewportSize.height,
-        minScale,
-        defaultCameraRef.current.scale
-      );
-      animateCameraTo(full.scale, full.translateX, full.translateY);
-      setFocusModeActive(false);
-      return;
-    }
-
-    applyFocusToNodes(pickFocusDayNodes(foregroundNodes));
-  }, [
-    animateCameraTo,
-    applyFocusToNodes,
-    focusModeActive,
-    foregroundNodes,
-    minScale,
-    viewportSize,
-  ]);
+    const targetScale = defaultCameraRef.current.scale || scale.value;
+    const center = computeMapCenterTransform(
+      viewportSize.width,
+      viewportSize.height,
+      targetScale
+    );
+    animateCameraTo(center.scale, center.translateX, center.translateY);
+    setFocusModeActive(false);
+    closeMenu();
+  }, [animateCameraTo, closeMenu, scale, viewportSize]);
 
   useEffect(() => {
-    if (!focusRequestKey) return;
+    if (!focusRequestKey || connectionNodes.length === 0) return;
     const ids = focusNodeIds ?? [];
     const targets =
       ids.length > 0
-        ? foregroundNodes.filter((node) => ids.includes(node.id))
-        : pickFocusDayNodes(foregroundNodes);
+        ? connectionNodes.filter((node) => ids.includes(node.id))
+        : pickFocusDayNodes(connectionNodes);
     applyFocusToNodes(targets);
-  }, [focusRequestKey, focusNodeIds, foregroundNodes, applyFocusToNodes]);
+  }, [focusRequestKey, focusNodeIds, connectionNodes, applyFocusToNodes]);
 
   const handleZoomReset = useCallback(() => {
-    const fit = computeFitScale(viewportSize.width, viewportSize.height);
-    const t = centerCanvasTranslation(viewportSize.width, viewportSize.height, fit);
-    scale.value = fit;
-    translateX.value = t.x;
-    translateY.value = t.y;
-    savedScale.value = fit;
-    savedX.value = t.x;
-    savedY.value = t.y;
-    setMinScale(fit);
-    minScaleSv.value = fit;
-    setCanvasScale(fit);
+    const targetScale = defaultCameraRef.current.scale || clampZoom(
+      Math.max(computeFitScale(viewportSize.width, viewportSize.height) * 1.2, DEFAULT_START_SCALE),
+      minScale,
+      CANVAS_ZOOM.MAX
+    );
+    const center = computeMapCenterTransform(
+      viewportSize.width,
+      viewportSize.height,
+      targetScale
+    );
+    scale.value = center.scale;
+    translateX.value = center.translateX;
+    translateY.value = center.translateY;
+    savedScale.value = center.scale;
+    savedX.value = center.translateX;
+    savedY.value = center.translateY;
+    setViewCamera({ translateX: center.translateX, translateY: center.translateY, scale: center.scale });
+    setCanvasScale(center.scale);
     setFocusModeActive(false);
     closeMenu();
   }, [
     closeMenu,
-    minScaleSv,
+    minScale,
     savedScale,
     savedX,
     savedY,
@@ -637,13 +698,13 @@ export function TreeCanvas({
 
   useEffect(() => {
     if (activeNodeId == null) return;
-    const stillVisible = foregroundNodes.some((node) => node.id === activeNodeId);
-    const stillShadow = shadowGuides.some((node) => node.id === activeNodeId);
-    const stillLocked = lockedCatalog.some((node) => node.id === activeNodeId);
-    if (!stillVisible && !stillShadow && !stillLocked) {
+    const stillVisible = displayNodes.some(
+      (node) => node.id === activeNodeId && !node.isDeleted
+    );
+    if (!stillVisible) {
       closeMenu();
     }
-  }, [activeNodeId, closeMenu, foregroundNodes, lockedCatalog, shadowGuides]);
+  }, [activeNodeId, closeMenu, displayNodes]);
 
   const handleConfigureWildcard = useCallback(
     async (node: SkillNode, name: string, decayCategoria?: DecayCategoria) => {
@@ -653,9 +714,23 @@ export function TreeCanvas({
     [onConfigureWildcard, closeMenu]
   );
 
-  const handleActivate = useCallback((nodeId: number) => {
-    setActiveNodeId(nodeId);
-  }, []);
+  const handleActivate = useCallback(
+    (nodeId: number) => {
+      const live =
+        displayNodes.find((node) => node.id === nodeId) ??
+        nodes.find((node) => node.id === nodeId);
+      if (live) {
+        const positioned = withDisplayPosition(normalizeTreeDisplayNode(live));
+        setActiveNodeAnchor({
+          nodeId,
+          posX: positioned.posX,
+          posY: positioned.posY,
+        });
+      }
+      setActiveNodeId(nodeId);
+    },
+    [displayNodes, nodes, withDisplayPosition]
+  );
 
   const handleMotherNodePress = useCallback(
     (node: SkillNode) => {
@@ -675,12 +750,13 @@ export function TreeCanvas({
 
   const requestDailyVerify = useCallback(
     (nodeId: number) => {
-      const node = nodes.find((n) => n.id === nodeId);
+      const node =
+        displayNodes.find((n) => n.id === nodeId) ?? nodes.find((n) => n.id === nodeId);
       if (!node || isDailyVerifiedToday(node)) return;
       closeMenu();
       setQualityPickerNodeId(nodeId);
     },
-    [nodes, closeMenu]
+    [displayNodes, nodes, closeMenu]
   );
 
   const confirmDailyVerify = useCallback(
@@ -716,9 +792,11 @@ export function TreeCanvas({
   const qualityPickerNode = useMemo(
     () =>
       qualityPickerNodeId != null
-        ? nodes.find((n) => n.id === qualityPickerNodeId) ?? null
+        ? displayNodes.find((n) => n.id === qualityPickerNodeId) ??
+          nodes.find((n) => n.id === qualityPickerNodeId) ??
+          null
         : null,
-    [qualityPickerNodeId, nodes]
+    [qualityPickerNodeId, displayNodes, nodes]
   );
 
   const qualityPickerAccent = useMemo(() => {
@@ -727,10 +805,13 @@ export function TreeCanvas({
     return axisId ? NEN_PALETA[axisId].color : theme.primary;
   }, [qualityPickerNode, connectionNodes, theme.primary]);
 
-  const handleDragStart = useCallback((nodeId: number) => {
-    setDraggingNodeId(nodeId);
-    setActiveNodeId(null);
-  }, []);
+  const handleDragStart = useCallback(
+    (nodeId: number) => {
+      setDraggingNodeId(nodeId);
+      closeMenu();
+    },
+    [closeMenu]
+  );
 
   const handleDragMove = useCallback((nodeId: number, posX: number, posY: number) => {
     setPositionOverrides((prev) => ({
@@ -798,7 +879,12 @@ export function TreeCanvas({
     });
   }, [nodes]);
 
+  const syncCameraFromGestureEnd = useCallback(() => {
+    syncViewCamera(translateX.value, translateY.value, scale.value);
+  }, [scale, syncViewCamera, translateX, translateY]);
+
   const canvasStyle = useAnimatedStyle(() => ({
+    transformOrigin: 'left top',
     transform: [
       { translateX: translateX.value },
       { translateY: translateY.value },
@@ -810,18 +896,21 @@ export function TreeCanvas({
     () =>
       Gesture.Pan()
         .enabled(!canvasMenuOpen)
+        .maxPointers(1)
         .minDistance(CANVAS_PAN_MIN_DISTANCE)
         .activeOffsetX([-CANVAS_PAN_MIN_DISTANCE, CANVAS_PAN_MIN_DISTANCE])
         .activeOffsetY([-CANVAS_PAN_MIN_DISTANCE, CANVAS_PAN_MIN_DISTANCE])
         .onStart(() => {
           if (infoOpenRef.current || canvasMenuOpen) return;
+          menuDismissedDuringPan.value = false;
           savedX.value = translateX.value;
           savedY.value = translateY.value;
         })
         .onUpdate((event) => {
           if (infoOpenRef.current || canvasMenuOpen) return;
           const dist = Math.hypot(event.translationX, event.translationY);
-          if (dist >= PAN_DISMISS_MENU_PX) {
+          if (dist >= PAN_DISMISS_MENU_PX && !menuDismissedDuringPan.value) {
+            menuDismissedDuringPan.value = true;
             runOnJS(closeMenu)();
           }
           translateX.value = savedX.value + event.translationX;
@@ -831,20 +920,21 @@ export function TreeCanvas({
           if (infoOpenRef.current || canvasMenuOpen) return;
           savedX.value = translateX.value;
           savedY.value = translateY.value;
+          runOnJS(syncCameraFromGestureEnd)();
         }),
-    [canvasMenuOpen, closeMenu, savedX, savedY, translateX, translateY]
+    [canvasMenuOpen, closeMenu, menuDismissedDuringPan, savedX, savedY, syncCameraFromGestureEnd, translateX, translateY]
   );
 
   const canvasPinchGesture = useMemo(
     () =>
       Gesture.Pinch()
+        .enabled(!canvasMenuOpen)
         .onStart(() => {
-          if (infoOpenRef.current) return;
+          if (infoOpenRef.current || canvasMenuOpen) return;
           savedScale.value = scale.value;
-          runOnJS(closeMenu)();
         })
         .onUpdate((event) => {
-          if (infoOpenRef.current) return;
+          if (infoOpenRef.current || canvasMenuOpen) return;
           const next = clampZoom(
             savedScale.value * event.scale,
             minScaleSv.value,
@@ -863,16 +953,16 @@ export function TreeCanvas({
           translateY.value = t.y;
         })
         .onEnd(() => {
-          if (infoOpenRef.current) return;
+          if (infoOpenRef.current || canvasMenuOpen) return;
           savedScale.value = scale.value;
           savedX.value = translateX.value;
           savedY.value = translateY.value;
-          runOnJS(syncCanvasScale)(scale.value);
+          runOnJS(syncCameraFromGestureEnd)();
         }),
-    [closeMenu, minScaleSv, savedScale, savedX, savedY, scale, syncCanvasScale, translateX, translateY]
+    [canvasMenuOpen, minScaleSv, savedScale, savedX, savedY, scale, syncCameraFromGestureEnd, translateX, translateY]
   );
 
-  const backgroundTapGesture = useMemo(
+  const backgroundDismissTap = useMemo(
     () =>
       Gesture.Tap()
         .maxDistance(CANVAS_PAN_MIN_DISTANCE)
@@ -884,28 +974,22 @@ export function TreeCanvas({
     [closeMenu]
   );
 
-  const viewportTapGesture = useMemo(
-    () =>
-      Gesture.Tap()
-        .enabled(!canvasMenuOpen)
-        .maxDistance(CANVAS_PAN_MIN_DISTANCE)
-        .maxDuration(280)
-        .onEnd(() => {
-          if (infoOpenRef.current) return;
-          runOnJS(closeMenu)();
-        }),
-    [closeMenu, canvasMenuOpen]
-  );
-
-  const viewportNavigationGesture = useMemo(
-    () => Gesture.Exclusive(canvasPanGesture, viewportTapGesture),
-    [canvasPanGesture, viewportTapGesture]
+  const canvasViewportGesture = useMemo(
+    () => Gesture.Simultaneous(canvasPinchGesture, canvasPanGesture),
+    [canvasPanGesture, canvasPinchGesture]
   );
 
   return (
     <View style={styles.root}>
-      <GestureDetector gesture={Gesture.Simultaneous(viewportNavigationGesture, canvasPinchGesture)}>
+      <GestureDetector gesture={canvasViewportGesture}>
         <View style={styles.viewport} onLayout={handleViewportLayout}>
+          {canvasMenuOpen && !infoOpenRef.current && (
+            <Pressable
+              style={styles.menuDismissBackdrop}
+              onPress={closeMenu}
+              accessibilityLabel="Cerrar menú del nodo"
+            />
+          )}
           <Animated.View
             pointerEvents="box-none"
             style={[
@@ -915,36 +999,28 @@ export function TreeCanvas({
             ]}
           >
             <View style={styles.backgroundLayer} pointerEvents="box-none">
-              <GestureDetector gesture={backgroundTapGesture}>
+              {canvasMenuOpen && !infoOpenRef.current ? (
+                <GestureDetector gesture={backgroundDismissTap}>
+                  <View style={styles.backgroundTapPlate} accessibilityLabel="Fondo del mapa" />
+                </GestureDetector>
+              ) : (
                 <View style={styles.backgroundTapPlate} accessibilityLabel="Fondo del mapa" />
-              </GestureDetector>
-              <View style={styles.backgroundDecor} pointerEvents="none">
+              )}
+              <View style={styles.backgroundDecor} pointerEvents="box-none">
                 <TreeSpaceBackground />
-                <Pressable
-                  style={styles.nenHub}
-                  onPress={() => setNenDetailOpen(true)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Ver detalle del perfil Nen"
-                >
-                  <NenRadarChart
-                    profile={nenProfile}
-                    size={CENTER_NEN_CHART_SIZE}
-                    glowColor={theme.accent}
-                    celebratingAxis={celebratingAxis}
-                    celebrationTick={celebrationTick}
-                    hatsuLabel={hatsu.hatsuLabel}
-                    coolingAxes={nenCoolingAxes}
-                  />
-                </Pressable>
-                <TreeConnections
-                  nodes={connectionNodes}
-                  theme={theme}
-                  user={user}
-                  simplified={!detailMode}
-                  pulseNodeIds={connectionPulse.nodeIds}
-                  pulseTick={connectionPulse.tick}
-                />
               </View>
+            </View>
+
+            <View style={styles.connectionsLayer} pointerEvents="none">
+              <TreeConnections
+                nodes={connectionNodes}
+                theme={theme}
+                user={user}
+                simplified={false}
+                focusNodeId={activeNodeId}
+                pulseNodeIds={connectionPulse.nodeIds}
+                pulseTick={connectionPulse.tick}
+              />
             </View>
 
             <View
@@ -954,14 +1030,14 @@ export function TreeCanvas({
               ]}
               pointerEvents="box-none"
             >
-              {inactiveShadowGuides.map((node) => (
+              {shadowGuides.map((node) => (
                 <ShadowGuideNode
                   key={node.id}
-                  node={node}
+                  node={applyActiveAnchor(node)}
                   nodes={connectionNodes}
                   theme={theme}
                   user={user}
-                  isActive={false}
+                  isActive={node.id === activeNodeId}
                   onActivate={handleActivate}
                   onDeactivate={closeMenu}
                   onAddXp={onAddXp}
@@ -972,57 +1048,44 @@ export function TreeCanvas({
                   onRenameNode={onRenameNode}
                   onShowInfo={handleShowInfo}
                   detailMode={detailMode}
-                  hideRadialMenu
                 />
               ))}
-              {activeShadowNode && (
-                <ShadowGuideNode
-                  key={activeShadowNode.id}
-                  node={activeShadowNode}
-                  nodes={connectionNodes}
-                  theme={theme}
-                  user={user}
-                  isActive
-                  onActivate={handleActivate}
-                  onDeactivate={closeMenu}
-                  onAddXp={onAddXp}
-                  onDailyVerify={requestDailyVerify}
-                  onAddSubSkill={onAddSubSkill}
-                  onAdoptGuide={onAdoptGuide}
-                  onDeleteNode={onDeleteNode}
-                  onRenameNode={onRenameNode}
-                  onShowInfo={handleShowInfo}
-                  detailMode={detailMode}
-                  hideRadialMenu
-                />
-              )}
             </View>
 
             <View style={styles.nodesLayer} pointerEvents="box-none">
-              {inactiveLockedCatalog.map((node) => (
+              {lockedCatalogToRender.map((node) => (
                 <LockedCatalogNode
                   key={node.id}
-                  node={node}
+                  node={applyActiveAnchor(node)}
                   nodes={connectionNodes}
                   theme={theme}
                   user={user}
                   detailMode={detailMode}
-                  isActive={false}
+                  isActive={node.id === activeNodeId}
+                  canvasMenuOpen={canvasMenuOpen}
                   onActivate={handleActivate}
+                  onDeactivate={closeMenu}
+                  onAddXp={onAddXp}
+                  onDailyVerify={requestDailyVerify}
+                  onAddSubSkill={onAddSubSkill}
+                  onAdoptGuide={onAdoptGuide}
+                  onDeleteNode={onDeleteNode}
+                  onRenameNode={onRenameNode}
+                  onShowInfo={handleShowInfo}
                 />
               ))}
-              {inactiveForegroundNodes.map((node) => {
+              {foregroundNodes.map((node) => {
                 const flash = xpFlashByNode[node.id];
                 return (
                 <CustomNode
                   key={node.id}
-                  node={node}
+                  node={applyActiveAnchor(node)}
                   nodes={connectionNodes}
                   theme={theme}
                   user={user}
-                  isActive={false}
+                  isActive={node.id === activeNodeId}
                   isDragging={draggingNodeId === node.id}
-                  isDraggable={isDraggableNode(node) && detailMode}
+                  isDraggable={isDraggableNode(node) && detailMode && node.id !== activeNodeId}
                   onActivate={handleActivate}
                   onDeactivate={closeMenu}
                   onDragStart={handleDragStart}
@@ -1038,41 +1101,21 @@ export function TreeCanvas({
                   onMotherNodePress={handleMotherNodePress}
                   detailMode={detailMode}
                   canvasMenuOpen={canvasMenuOpen}
-                  hideRadialMenu
                   xpFlashTick={flash?.tick ?? 0}
                   xpFlashKind={flash?.kind ?? 'levelUp'}
                   invalidDropTick={invalidDropTicks[node.id] ?? 0}
                 />
               );})}
-              {activeCatalogNode && (
-                <LockedCatalogNode
-                  key={activeCatalogNode.id}
-                  node={activeCatalogNode}
+            </View>
+
+            {activeNodeForMenu && detailMode && (
+              <View style={styles.menuOverlayLayer} pointerEvents="box-none">
+                <CanvasNodeMenuOverlay
+                  node={activeNodeForMenu}
                   nodes={connectionNodes}
-                  theme={theme}
                   user={user}
                   detailMode={detailMode}
-                  isActive
-                  onActivate={handleActivate}
-                />
-              )}
-              {activeForegroundNode && (() => {
-                const flash = xpFlashByNode[activeForegroundNode.id];
-                return (
-                <CustomNode
-                  key={activeForegroundNode.id}
-                  node={activeForegroundNode}
-                  nodes={connectionNodes}
-                  theme={theme}
-                  user={user}
-                  isActive
-                  isDragging={draggingNodeId === activeForegroundNode.id}
-                  isDraggable={isDraggableNode(activeForegroundNode) && detailMode}
-                  onActivate={handleActivate}
-                  onDeactivate={closeMenu}
-                  onDragStart={handleDragStart}
-                  onDragMove={handleDragMove}
-                  onDragEnd={handleDragEnd}
+                  onCloseMenu={closeMenu}
                   onAddXp={onAddXp}
                   onDailyVerify={requestDailyVerify}
                   onAddSubSkill={onAddSubSkill}
@@ -1080,15 +1123,27 @@ export function TreeCanvas({
                   onDeleteNode={onDeleteNode}
                   onRenameNode={onRenameNode}
                   onShowInfo={handleShowInfo}
-                  onMotherNodePress={handleMotherNodePress}
-                  detailMode={detailMode}
-                  canvasMenuOpen={canvasMenuOpen}
-                  hideRadialMenu
-                  xpFlashTick={flash?.tick ?? 0}
-                  xpFlashKind={flash?.kind ?? 'levelUp'}
-                  invalidDropTick={invalidDropTicks[activeForegroundNode.id] ?? 0}
                 />
-              );})()}
+              </View>
+            )}
+
+            <View style={styles.nenHubLayer} pointerEvents="box-none">
+              <Pressable
+                style={styles.nenHub}
+                onPress={() => setNenDetailOpen(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Ver detalle del perfil Nen"
+              >
+                <NenRadarChart
+                  profile={nenProfile}
+                  size={CENTER_NEN_CHART_SIZE}
+                  glowColor={theme.accent}
+                  celebratingAxis={celebratingAxis}
+                  celebrationTick={celebrationTick}
+                  hatsuLabel={hatsu.hatsuLabel}
+                  coolingAxes={nenCoolingAxes}
+                />
+              </Pressable>
             </View>
 
             {detailMode && (
@@ -1111,71 +1166,10 @@ export function TreeCanvas({
                 })}
               </View>
             )}
+
           </Animated.View>
         </View>
       </GestureDetector>
-
-      {showMenuOverlay && (
-        <View style={styles.menuOverlayViewport} pointerEvents="box-none">
-          <Animated.View
-            pointerEvents="box-none"
-            style={[
-              styles.canvas,
-              { width: CANVAS_WIDTH, height: CANVAS_HEIGHT },
-              canvasStyle,
-            ]}
-          >
-            {activeCatalogNode && (
-              <CanvasNodeMenuOverlay
-                node={activeCatalogNode}
-                nodes={connectionNodes}
-                user={user}
-                detailMode={detailMode}
-                onCloseMenu={closeMenu}
-                onAddXp={onAddXp}
-                onDailyVerify={requestDailyVerify}
-                onAddSubSkill={onAddSubSkill}
-                onAdoptGuide={onAdoptGuide}
-                onDeleteNode={onDeleteNode}
-                  onRenameNode={onRenameNode}
-                onShowInfo={handleShowInfo}
-              />
-            )}
-            {activeForegroundNode && !isRootNode(activeForegroundNode) && (
-              <CanvasNodeMenuOverlay
-                node={activeForegroundNode}
-                nodes={connectionNodes}
-                user={user}
-                detailMode={detailMode}
-                onCloseMenu={closeMenu}
-                onAddXp={onAddXp}
-                onDailyVerify={requestDailyVerify}
-                onAddSubSkill={onAddSubSkill}
-                onAdoptGuide={onAdoptGuide}
-                onDeleteNode={onDeleteNode}
-                  onRenameNode={onRenameNode}
-                onShowInfo={handleShowInfo}
-              />
-            )}
-            {activeShadowNode && (
-              <CanvasNodeMenuOverlay
-                node={activeShadowNode}
-                nodes={connectionNodes}
-                user={user}
-                detailMode={detailMode}
-                onCloseMenu={closeMenu}
-                onAddXp={onAddXp}
-                onDailyVerify={requestDailyVerify}
-                onAddSubSkill={onAddSubSkill}
-                onAdoptGuide={onAdoptGuide}
-                onDeleteNode={onDeleteNode}
-                  onRenameNode={onRenameNode}
-                onShowInfo={handleShowInfo}
-              />
-            )}
-          </Animated.View>
-        </View>
-      )}
 
       {criticalFlashTick > 0 && (
         <CriticalFlashOverlay
@@ -1202,7 +1196,8 @@ export function TreeCanvas({
           },
         ]}
         onPress={handleToggleFocus}
-        accessibilityLabel="Foco del día"
+        accessibilityRole="button"
+        accessibilityLabel="Centrar mapa en el hexágono Nen"
       >
         <Text style={[styles.focusFabIcon, { color: focusModeActive ? '#000' : theme.primary }]}>
           ◎
@@ -1254,6 +1249,11 @@ const styles = StyleSheet.create({
     backgroundColor: SPACE_BG,
     overflow: 'hidden',
   },
+  menuDismissBackdrop: {
+    ...StyleSheet.absoluteFill,
+    zIndex: 1,
+    backgroundColor: 'transparent',
+  },
   criticalFlash: {
     backgroundColor: '#3ecf6e',
     zIndex: 9999,
@@ -1262,16 +1262,12 @@ const styles = StyleSheet.create({
     flex: 1,
     overflow: 'hidden',
   },
-  menuOverlayViewport: {
-    ...StyleSheet.absoluteFill,
-    overflow: 'hidden',
-    zIndex: 150,
-  },
   canvas: {
     position: 'absolute',
     left: 0,
     top: 0,
     overflow: 'visible',
+    zIndex: 2,
   },
   backgroundLayer: {
     ...StyleSheet.absoluteFill,
@@ -1290,7 +1286,11 @@ const styles = StyleSheet.create({
     top: CENTER_NEN_OFFSET,
     width: CENTER_NEN_SIZE,
     height: CENTER_NEN_SIZE,
-    zIndex: 1,
+  },
+  connectionsLayer: {
+    ...StyleSheet.absoluteFill,
+    zIndex: 15,
+    overflow: 'visible',
   },
   shadowGuidesLayer: {
     ...StyleSheet.absoluteFill,
@@ -1308,6 +1308,16 @@ const styles = StyleSheet.create({
   labelsLayer: {
     ...StyleSheet.absoluteFill,
     zIndex: 110,
+    overflow: 'visible',
+  },
+  menuOverlayLayer: {
+    ...StyleSheet.absoluteFill,
+    zIndex: 999,
+    overflow: 'visible',
+  },
+  nenHubLayer: {
+    ...StyleSheet.absoluteFill,
+    zIndex: 1000,
     overflow: 'visible',
   },
   focusFab: {

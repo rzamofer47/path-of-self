@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 
 import { AppTheme, SkillNode, User } from '@/src/types';
@@ -6,7 +6,7 @@ import { useNenHatsu } from '@/src/context/NenHatsuContext';
 import { computeDecayRatio } from '@/src/utils/decayRatio';
 import { getNodeVisualIntensity } from '@/src/utils/nodeIntensity';
 import { getDecayState, isVisualDecayTrackedNode } from '@/src/utils/visualDecay';
-import { getRuneIcon, isNodeUnlocked, ORB_SIZE } from '@/src/utils/treeLayout';
+import { getRuneIcon, isCatalogNodeAccessible, isNodeUnlocked, ORB_SIZE } from '@/src/utils/treeLayout';
 
 import { ORB_VISUAL_SIZE, OrbVisual } from './OrbVisual';
 
@@ -17,24 +17,35 @@ interface LockedCatalogNodeProps {
   user: User | null;
   detailMode: boolean;
   isActive?: boolean;
+  canvasMenuOpen?: boolean;
   onActivate?: (nodeId: number) => void;
+  onDeactivate?: () => void;
+  onAddXp?: (nodeId: number) => void;
+  onDailyVerify?: (nodeId: number) => void;
+  onAddSubSkill?: (parent: SkillNode) => void;
+  onAdoptGuide?: (guide: SkillNode) => void;
+  onDeleteNode?: (node: SkillNode) => void;
+  onRenameNode?: (node: SkillNode) => void;
+  onShowInfo?: (node: SkillNode) => void;
 }
 
 const ORB_OFFSET = (ORB_VISUAL_SIZE - ORB_SIZE) / 2;
 const IS_WEB = Platform.OS === 'web';
 
 /** Nodo predefinido del catálogo — brillo pleno cuando está en rutina activa. */
-export function LockedCatalogNode({
+function LockedCatalogNodeInner({
   node,
   nodes,
   user,
   detailMode,
   isActive = false,
+  canvasMenuOpen = false,
   onActivate,
 }: LockedCatalogNodeProps) {
   const rune = getRuneIcon(node);
   const hatsu = useNenHatsu();
-  const unlocked = isNodeUnlocked(node);
+  const progressionOpen = isCatalogNodeAccessible(node, nodes);
+  const unlocked = isNodeUnlocked(node) && progressionOpen;
 
   const { palette, routineState } = useMemo(
     () => getNodeVisualIntensity(node, nodes, user),
@@ -51,9 +62,11 @@ export function LockedCatalogNode({
     return getDecayState(node) === 'fresh';
   }, [node]);
 
-  const handlePress = () => {
-    onActivate?.(node.id);
-  };
+  const handlePress = useCallback(() => {
+    if (!isActive) {
+      onActivate?.(node.id);
+    }
+  }, [isActive, node.id, onActivate]);
 
   const orb = (
     <OrbVisual
@@ -75,18 +88,18 @@ export function LockedCatalogNode({
 
   return (
     <View
-      pointerEvents={detailMode ? 'box-none' : 'none'}
+      pointerEvents={canvasMenuOpen && !isActive ? 'none' : 'box-none'}
       style={[
         styles.wrapper,
         {
           left: node.posX + ORB_SIZE / 2 - ORB_VISUAL_SIZE / 2,
           top: node.posY - ORB_OFFSET,
           zIndex: isActive ? 990 : 45,
-          opacity: routineState === 'active' ? 1 : 0.82,
+          opacity: !progressionOpen ? 0.3 : routineState === 'active' ? 1 : 0.82,
         },
       ]}
     >
-      {detailMode && onActivate ? (
+      {onActivate ? (
         IS_WEB ? (
           <Pressable
             onPress={handlePress}
@@ -109,6 +122,8 @@ export function LockedCatalogNode({
     </View>
   );
 }
+
+export const LockedCatalogNode = memo(LockedCatalogNodeInner);
 
 const styles = StyleSheet.create({
   wrapper: {

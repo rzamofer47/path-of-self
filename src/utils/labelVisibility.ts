@@ -54,7 +54,7 @@ export function computeLabelVisibilityMap(
   if (activeNodeId != null) {
     for (const node of candidates) {
       result.set(node.id, {
-        opacity: node.id === activeNodeId ? 1 : LABEL_OPACITY_DIMMED_MENU,
+        opacity: node.id === activeNodeId ? 1 : LABEL_OPACITY_DEFAULT,
         prominent: node.id === activeNodeId,
       });
     }

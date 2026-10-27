@@ -64,7 +64,7 @@ export function CanvasNodeMenuOverlay({
         onShowInfo: () => onShowInfo(node),
         onRenameNode,
         onDeleteNode,
-        onCloseMenu: onCloseMenu,
+        onCloseMenu,
       }),
     [
       node,

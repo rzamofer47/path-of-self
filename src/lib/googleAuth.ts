@@ -98,6 +98,6 @@ export async function signInWithGoogle(): Promise<void> {
 }
 
 export async function signOutFromGoogle(): Promise<void> {
-  const { error } = await getSupabase().auth.signOut();
+  const { error } = await getSupabase().auth.signOut({ scope: 'global' });
   if (error) throw error;
 }

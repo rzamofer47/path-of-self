@@ -32,10 +32,10 @@ import {
   setDailyVerification,
   getAllNodes,
   resetTestMode,
-  markOnboardingComplete,
-  clearCloudProgressForCurrentUser,
+  clearCloudAccountForFullReset,
   updateNodeName,
 } from '@/src/database/queryEngine';
+import { markOnboardingComplete as markLocalOnboardingComplete } from '@/src/database/queryEngine.local';
 import { confirmAction } from '@/src/utils/confirmAction';
 import { isDormantNode } from '@/src/utils/nodeMenuPolicy';
 import { useDecayEngine } from '@/src/hooks/useDecayEngine';
@@ -302,36 +302,33 @@ export default function TreeScreen() {
     const runFullReset = () => {
       void (async () => {
         try {
+          if (isSupabaseEnabled()) {
+            await clearCloudAccountForFullReset();
+          }
+
+          if (isSupabaseEnabled()) {
+            await signOutAccount();
+          }
+
           await resetTestMode();
-          await markOnboardingComplete();
+          await markLocalOnboardingComplete();
           await setTutorialCompleted(true);
           if (isSupabaseEnabled()) {
             await setSkipOnboardingAfterFullReset(true);
           }
 
-          if (isSupabaseEnabled() && authAccount) {
-            try {
-              await clearCloudProgressForCurrentUser();
-            } catch {
-              /* tablas de sync opcionales — el reinicio local sigue */
-            }
-          }
-
-          if (isSupabaseEnabled()) {
-            await signOutAccount();
-            await refreshAuthAccount();
-          }
-
           await refreshUser();
-          await refresh();
+          await refresh({ silent: true });
 
-          if (isSupabaseEnabled()) {
-            if (Platform.OS === 'web' && typeof window !== 'undefined') {
-              window.location.assign('/login');
-              return;
-            }
-            router.replace('/login');
+          if (!isSupabaseEnabled()) {
+            return;
           }
+
+          if (Platform.OS === 'web' && typeof window !== 'undefined') {
+            window.location.assign('/login');
+            return;
+          }
+          router.replace('/login');
         } catch (error) {
           const message =
             error instanceof Error ? error.message : 'No se pudo reiniciar la aplicación';
@@ -350,13 +347,11 @@ export default function TreeScreen() {
 
     const title = 'Reinicio total';
     const message =
-      'Se borrará todo el progreso en este dispositivo, volverás al árbol inicial y deberás iniciar sesión con Google de nuevo. ¿Continuar?';
+      'Se borrará todo el progreso en la nube y en este dispositivo (misma cuenta Google en todos los aparatos). Volverás al árbol inicial y deberás iniciar sesión de nuevo. ¿Continuar?';
 
     confirmAction(title, message, 'Reiniciar todo', runFullReset, { destructive: true });
   }, [
-    authAccount,
     refresh,
-    refreshAuthAccount,
     refreshUser,
     router,
     signOutAccount,

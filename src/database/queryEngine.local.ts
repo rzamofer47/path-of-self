@@ -147,8 +147,12 @@ export async function updateNodeName(
   if (isRootNode(node)) {
     return { success: false, message: 'Las raíces Nen no se pueden renombrar' };
   }
-  if (node.layer === 'locked' || node.layer === 'guide' || node.layer === 'dormant') {
+  if (node.layer === 'guide' || node.layer === 'dormant') {
     return { success: false, message: 'Este nodo no se puede renombrar' };
+  }
+
+  if (node.layer === 'locked') {
+    await db.runAsync(`UPDATE nodes SET layer = 'custom' WHERE id = ?`, nodeId);
   }
 
   await db.runAsync(
@@ -364,6 +368,13 @@ export async function createCustomNode(
   const posY = placement.posY;
   const resolvedParentId = parent?.id ?? parentId;
 
+  if (resolvedParentId != null) {
+    const parentRow = await db.getFirstAsync('SELECT layer FROM nodes WHERE id = ?', resolvedParentId);
+    if (parentRow && asRow(parentRow).layer === 'locked') {
+      await db.runAsync(`UPDATE nodes SET layer = 'custom' WHERE id = ?`, resolvedParentId);
+    }
+  }
+
   const result = await db.runAsync(
     `INSERT INTO nodes (name, type, layer, macro_area, pos_x, pos_y, parent_id, slug, guide_url, origin_pos_x, origin_pos_y, decay_categoria)
      VALUES (?, ?, 'custom', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -570,11 +581,12 @@ export async function softDeleteNode(
   if (isRootNode(node)) {
     return { success: false, message: 'Las raíces permanecen ancladas en la superficie' };
   }
-  if (node.layer === 'locked') {
-    return { success: false, message: 'Los nodos del catálogo no se pueden archivar' };
-  }
   if (node.isDeleted) {
     return { success: false, message: 'Este nodo ya está en el inframundo' };
+  }
+
+  if (node.layer === 'locked') {
+    await db.runAsync(`UPDATE nodes SET layer = 'custom' WHERE id = ?`, nodeId);
   }
 
   const allNodes = await getAllNodes();

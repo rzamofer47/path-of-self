@@ -31,7 +31,12 @@ export function useDecayEngine() {
     setError(null);
     try {
       const currentUser = await getUser();
-      if (!currentUser) return;
+      if (!currentUser) {
+        setUser(null);
+        setNodes([]);
+        setDeletedNodes([]);
+        return;
+      }
 
       if (!options?.skipDecay && currentUser.onboardingComplete) {
         await applyDecayToAllNodes(currentUser);

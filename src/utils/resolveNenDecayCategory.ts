@@ -36,12 +36,24 @@ const VERTIENTE_DEFAULT: Record<VertienteId, DecayCategoria> = {
   gimnasio: 'motor_explosivo',
   judo: 'motor_explosivo',
   fisioterapia: 'motor_movilidad',
-  nervioso: 'habito_diario',
-  enfoque: 'habito_diario',
+  ingles: 'cognitivo_filosofico',
+  instrumento: 'cognitivo_filosofico',
+  meditacion: 'cognitivo_filosofico',
+  nueva_habilidad: 'cognitivo_filosofico',
   lectura: 'cognitivo_filosofico',
-  coding: 'tecnico_digital',
-  writing: 'creativo_produccion',
-  design: 'tecnico_digital',
+  filosofia: 'cognitivo_filosofico',
+  filosofia_practica: 'cognitivo_filosofico',
+  video: 'creativo_produccion',
+  contenido_video: 'creativo_produccion',
+  presencia: 'creativo_produccion',
+  presencia_digital: 'creativo_produccion',
+  productos: 'tecnico_digital',
+  productos_digitales: 'tecnico_digital',
+  clientes: 'tecnico_digital',
+  stack_tecnico: 'tecnico_digital',
+  inversiones: 'habito_diario',
+  recursos: 'habito_diario',
+  recursos_tiempo: 'habito_diario',
   guitar: 'cognitivo_filosofico',
   piano: 'cognitivo_filosofico',
   language: 'cognitivo_filosofico',
@@ -57,18 +69,15 @@ function resolveFromSlug(slug: string | null): DecayCategoria | null {
   if (slug.startsWith('phy_gym_')) return 'motor_explosivo';
   if (slug.startsWith('phy_physio_')) return 'motor_movilidad';
   if (slug.startsWith('phy_judo_')) return 'motor_explosivo';
-  if (slug.startsWith('men_nerv_')) return 'habito_diario';
-  if (slug.startsWith('men_focus_')) return 'habito_diario';
-  if (slug.startsWith('men_read_')) return 'cognitivo_filosofico';
-  if (slug.startsWith('prod_code_')) return 'tecnico_digital';
-  if (slug.startsWith('prod_write_')) return 'creativo_produccion';
-  if (slug.startsWith('disc_code_') || slug.startsWith('discipline_productive_coding')) {
+  if (slug.startsWith('trans_eng_') || slug.startsWith('trans_inst_') || slug.startsWith('trans_medit_') || slug.startsWith('trans_skill_')) {
+    return 'cognitivo_filosofico';
+  }
+  if (slug.startsWith('men_read_') || slug.startsWith('men_phil_')) return 'cognitivo_filosofico';
+  if (slug.startsWith('prod_video_') || slug.startsWith('prod_pres_')) return 'creativo_produccion';
+  if (slug.startsWith('prod_arch_') || slug.startsWith('prod_cli_') || slug.startsWith('prod_stack_')) {
     return 'tecnico_digital';
   }
-  if (slug.startsWith('disc_write_') || slug.startsWith('discipline_productive_writing')) {
-    return 'creativo_produccion';
-  }
-  if (slug.startsWith('disc_design_')) return 'tecnico_digital';
+  if (slug.startsWith('prod_invest_') || slug.startsWith('prod_rec_')) return 'habito_diario';
   if (slug.startsWith('disc_guitar_') || slug.startsWith('disc_piano_') || slug.startsWith('disc_lang_')) {
     return 'cognitivo_filosofico';
   }

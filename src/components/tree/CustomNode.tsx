@@ -25,12 +25,10 @@ import {
   isNodeUnlocked,
   ORB_SIZE,
 } from '@/src/utils/treeLayout';
-
-import { buildNodeMenuActions } from './buildNodeMenuActions';
-import { MENU_CONTAINER_WIDTH } from './nodeLabelLayout';
-import { NodeRadialMenu, MENU_ROW_HEIGHT } from './NodeRadialMenu';
-import { ORB_VISUAL_SIZE, OrbVisual } from './OrbVisual';
 import type { XpFeedbackEventType } from '@/src/utils/xpFeedback';
+
+import { MENU_CONTAINER_WIDTH } from './nodeLabelLayout';
+import { ORB_VISUAL_SIZE, OrbVisual } from './OrbVisual';
 
 interface CustomNodeProps {
   node: SkillNode;
@@ -57,16 +55,12 @@ interface CustomNodeProps {
   detailMode: boolean;
   /** Hay un menú radial abierto en el lienzo (atenúa etiquetas ajenas). */
   canvasMenuOpen?: boolean;
-  /** Menú renderizado fuera del GestureDetector (TreeCanvas overlay). */
-  hideRadialMenu?: boolean;
   xpFlashTick?: number;
   xpFlashKind?: XpFeedbackEventType;
   invalidDropTick?: number;
 }
 
 const ORB_OFFSET = (ORB_VISUAL_SIZE - ORB_SIZE) / 2;
-const MENU_GAP_ABOVE_ORB = 6;
-const MENU_STACK_HEIGHT = MENU_ROW_HEIGHT + MENU_GAP_ABOVE_ORB;
 const DRAG_ACTIVATION = 8;
 const LONG_PRESS_MS = 500;
 const SCROLL_CANCEL_PX = 10;
@@ -93,17 +87,10 @@ export function CustomNode({
   onDragStart,
   onDragMove,
   onDragEnd,
-  onAddXp,
-  onDailyVerify,
-  onAddSubSkill,
-  onAdoptGuide,
-  onDeleteNode,
   onRenameNode,
-  onShowInfo,
   onMotherNodePress,
   detailMode,
   canvasMenuOpen = false,
-  hideRadialMenu = false,
   xpFlashTick = 0,
   xpFlashKind = 'levelUp',
   invalidDropTick = 0,
@@ -350,87 +337,26 @@ export function CustomNode({
     </Animated.View>
   );
 
-  const handleDailyVerify = useCallback(async () => {
-    if (isDailyVerifiedToday(node)) return;
-    onDailyVerify(node.id);
-  }, [node, onDailyVerify]);
-
-  const handleAddXp = useCallback(async () => {
-    await onAddXp(node.id);
-  }, [node.id, onAddXp]);
-
-  const handleShowInfo = useCallback(() => {
-    requestAnimationFrame(() => {
-      onShowInfo(node);
-    });
-  }, [node, onShowInfo]);
-
-  const menuActions = useMemo(
-    () =>
-      hideRadialMenu
-        ? []
-        : buildNodeMenuActions(node, nodes, {
-            onAdoptGuide,
-            onAddSubSkill,
-            onAddXp: () => {
-              void handleAddXp();
-            },
-            onDailyVerify: () => {
-              void handleDailyVerify();
-            },
-            onShowInfo: handleShowInfo,
-            onRenameNode,
-            onDeleteNode,
-            onCloseMenu: onDeactivate,
-          }),
-    [
-      hideRadialMenu,
-      node,
-      nodes,
-      onAdoptGuide,
-      onAddSubSkill,
-      handleAddXp,
-      handleDailyVerify,
-      handleShowInfo,
-      onRenameNode,
-      onDeleteNode,
-      onDeactivate,
-    ]
-  );
-
-  const showMenu =
-    !hideRadialMenu && detailMode && isActive && !isDragging && menuActions.length > 0;
-  const isMenuSelected = (canvasMenuOpen && isActive && !isDragging) || showMenu;
-  const stackReservedHeight = showMenu ? MENU_STACK_HEIGHT : 0;
-
-  /** Raíces Nen: hit area compacta — el contenedor de 240px se solapaba con vecinos (~220px entre centros). */
-  const touchWidth = isRoot ? ORB_VISUAL_SIZE : MENU_CONTAINER_WIDTH;
-  const touchLeft = node.posX + ORB_SIZE / 2 - touchWidth / 2;
-
   const stackZIndex = caps.isRoot ? 80 : caps.isWildcard ? 40 : 55;
+
+  const touchWidth = ORB_VISUAL_SIZE;
+  const touchLeft = node.posX + ORB_SIZE / 2 - touchWidth / 2;
 
   return (
     <View
-      pointerEvents={detailMode ? 'box-none' : 'none'}
+      pointerEvents={canvasMenuOpen && !isActive ? 'none' : 'box-none'}
       style={[
         styles.wrapper,
         isRoot ? styles.wrapperCompact : null,
         {
           left: touchLeft,
           width: touchWidth,
-          top: node.posY - ORB_OFFSET - stackReservedHeight,
-          paddingTop: stackReservedHeight,
-          zIndex: isDragging ? 999 : isMenuSelected ? 998 : isActive ? 990 : stackZIndex,
+          top: node.posY - ORB_OFFSET,
+          zIndex: isDragging ? 999 : isActive ? 990 : stackZIndex,
         },
       ]}
       collapsable={false}
     >
-      {showMenu && (
-        <View style={styles.menuSlot} pointerEvents="auto">
-          <NodeRadialMenu accentColor={borderColor} actions={menuActions} />
-        </View>
-      )}
-
       {IS_WEB ? (
         <Pressable
           onPress={handleOrbPress}
@@ -462,14 +388,6 @@ const styles = StyleSheet.create({
   },
   wrapperCompact: {
     width: ORB_VISUAL_SIZE,
-  },
-  menuSlot: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    alignItems: 'center',
-    zIndex: 500,
   },
   orbHitArea: {
     width: ORB_VISUAL_SIZE,

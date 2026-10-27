@@ -1,4 +1,3 @@
-import { XP_PER_SESSION } from '@/src/config/progressionConfig';
 import { SkillNode } from '@/src/types';
 import { confirmDestructive } from '@/src/utils/confirmAction';
 import { isDailyVerifiedToday } from '@/src/utils/dailyVerification';
@@ -17,46 +16,29 @@ export interface NodeMenuHandlers {
   onCloseMenu: () => void;
 }
 
+/** Orden fijo de la pata de conejo para todos los nodos. */
+const STANDARD_MENU_ORDER = [
+  'daily-check',
+  'info',
+  'rename',
+  'add-sub',
+  'delete',
+] as const;
+
 export function buildNodeMenuActions(
   node: SkillNode,
   nodes: SkillNode[],
   handlers: NodeMenuHandlers
 ): RadialMenuAction[] {
   const caps = getNodeMenuCapabilities(node);
-  const actions: RadialMenuAction[] = [];
+  const byKey = new Map<string, RadialMenuAction>();
   const verifiedToday = isDailyVerifiedToday(node);
 
-  if (caps.canAdoptGuide) {
-    actions.push({
-      key: 'adopt',
-      icon: '+',
-      label: isDormantNode(node) ? 'Reactivar habilidad' : 'Adoptar guía',
-      onPress: () => {
-        handlers.onAdoptGuide(node);
-        handlers.onCloseMenu();
-      },
-    });
-  }
-
-  if (caps.canAddSubSkill) {
-    actions.push({
-      key: 'add-sub',
-      icon: '+',
-      label: 'Sub-habilidad',
-      onPress: () => {
-        handlers.onAddSubSkill(node);
-        handlers.onCloseMenu();
-      },
-    });
-  }
-
   if (caps.canDailyVerify) {
-    actions.push({
+    byKey.set('daily-check', {
       key: 'daily-check',
       icon: '✓',
-      label: verifiedToday
-        ? 'Completado hoy'
-        : 'Marcar actividad de hoy',
+      label: verifiedToday ? 'Completado hoy' : 'Marcar actividad de hoy',
       checked: verifiedToday,
       onPress: () => {
         if (verifiedToday) {
@@ -70,45 +52,6 @@ export function buildNodeMenuActions(
     });
   }
 
-  if (caps.canAddXp) {
-    actions.push({
-      key: 'xp',
-      icon: 'XP',
-      label: `Registrar práctica (+${XP_PER_SESSION} XP)`,
-      onPress: () => {
-        void Promise.resolve(handlers.onAddXp()).finally(() => {
-          handlers.onCloseMenu();
-        });
-      },
-    });
-  }
-
-  if (caps.canShowInfo) {
-    actions.push({
-      key: 'info',
-      icon: 'i',
-      label: 'Información',
-      onPress: () => {
-        handlers.onShowInfo();
-        requestAnimationFrame(() => {
-          handlers.onCloseMenu();
-        });
-      },
-    });
-  }
-
-  if (caps.canRename) {
-    actions.push({
-      key: 'rename',
-      icon: '✎',
-      label: 'Renombrar',
-      onPress: () => {
-        handlers.onCloseMenu();
-        handlers.onRenameNode(node);
-      },
-    });
-  }
-
   if (caps.canDelete) {
     const childCount = nodes.filter(
       (n) => n.parentId === node.id && n.layer !== 'dormant' && !n.isDeleted
@@ -118,7 +61,7 @@ export function buildNodeMenuActions(
         ? `"${node.name}" y ${childCount} sub-habilidad${childCount === 1 ? '' : 'es'} se ocultarán del mapa. Conservarás nivel, XP y posición. Podrás restaurarlos desde el Inframundo.`
         : `"${node.name}" se ocultará del mapa. Conservarás nivel, XP y posición. Podrás restaurarlo desde el Inframundo.`;
 
-    actions.push({
+    byKey.set('delete', {
       key: 'delete',
       icon: '×',
       label: 'Archivar habilidad',
@@ -132,5 +75,55 @@ export function buildNodeMenuActions(
     });
   }
 
-  return actions;
+  if (caps.canShowInfo) {
+    byKey.set('info', {
+      key: 'info',
+      icon: 'i',
+      label: 'Información',
+      onPress: () => {
+        handlers.onShowInfo();
+        requestAnimationFrame(() => {
+          handlers.onCloseMenu();
+        });
+      },
+    });
+  }
+
+  if (caps.canRename) {
+    byKey.set('rename', {
+      key: 'rename',
+      icon: '✎',
+      label: 'Renombrar',
+      onPress: () => {
+        handlers.onCloseMenu();
+        handlers.onRenameNode(node);
+      },
+    });
+  }
+
+  if (caps.canAdoptGuide) {
+    byKey.set('add-sub', {
+      key: 'add-sub',
+      icon: '+',
+      label: isDormantNode(node) ? 'Reactivar habilidad' : 'Agregar habilidad',
+      onPress: () => {
+        handlers.onAdoptGuide(node);
+        handlers.onCloseMenu();
+      },
+    });
+  } else if (caps.canAddSubSkill) {
+    byKey.set('add-sub', {
+      key: 'add-sub',
+      icon: '+',
+      label: 'Agregar habilidad',
+      onPress: () => {
+        handlers.onAddSubSkill(node);
+        handlers.onCloseMenu();
+      },
+    });
+  }
+
+  return STANDARD_MENU_ORDER.map((key) => byKey.get(key)).filter(
+    (action): action is RadialMenuAction => action != null
+  );
 }

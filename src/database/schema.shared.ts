@@ -1,5 +1,5 @@
 import { recomputeCustomNodePositions } from '@/src/utils/polarLayout';
-import { isRootLayer } from '@/src/utils/nodeColors';
+import { getCatalogParentSlug } from '@/src/data/skillCatalogSeeds';
 import { WILDCARD_SEEDS, resolveWildcardSeedPlacement } from '@/src/data/wildcardSeeds';
 import { syncCatalogNodes } from './catalogSeeds';
 import {
@@ -10,7 +10,12 @@ import { mapNode } from './mappers';
 import { backfillNodeDecayCategories } from './backfillNodeDecayCategories';
 import { AppDatabase } from './db.types';
 import { ROOT_SEEDS } from './rootSeeds';
-import { LEGACY_ROOT_SLUG_TO_NEN } from '@/src/config/nenMotherRoots';
+import {
+  LEGACY_ROOT_SLUG_TO_NEN,
+  NEN_MOTHER_SLUG_BY_ID,
+  NEN_ROOT_SLUG_BY_MACRO,
+} from '@/src/config/nenMotherRoots';
+import { SkillNode } from '@/src/types';
 
 export { GUIDE_SEEDS, ROOT_SEEDS } from './rootSeeds';
 
@@ -163,32 +168,131 @@ export async function syncWildcardNodes(db: AppDatabase): Promise<void> {
   }
 }
 
-/** Asigna parent_id a nodos custom huérfanos para que las conexiones padre→hijo existan. */
+/** Asigna parent_id a nodos custom/locked huérfanos según el catálogo. */
 export async function syncCustomNodeParentIds(db: AppDatabase): Promise<void> {
   const rows = await db.getAllAsync('SELECT * FROM nodes ORDER BY id ASC');
   if (rows.length === 0) return;
 
   const nodes = rows.map((row) => mapNode(row as Record<string, unknown>));
-  const roots = nodes.filter((n) => isRootLayer(n));
+  const slugToId = new Map<string, number>();
+  for (const node of nodes) {
+    if (node.slug) slugToId.set(node.slug, node.id);
+  }
 
   for (const node of nodes) {
-    if (node.layer !== 'custom') continue;
+    if (node.layer !== 'custom' && node.layer !== 'locked') continue;
+    if (!node.slug) continue;
 
-    let parentId: number | null = null;
+    const expectedParentSlug = getCatalogParentSlug(node.slug);
+    if (!expectedParentSlug) continue;
 
-    if (node.parentId != null && nodes.some((n) => n.id === node.parentId)) {
+    const expectedParentId = slugToId.get(expectedParentSlug);
+    if (expectedParentId == null || node.parentId === expectedParentId) continue;
+
+    await db.runAsync('UPDATE nodes SET parent_id = ? WHERE id = ?', expectedParentId, node.id);
+  }
+}
+
+function resolveOrphanParentSlug(node: SkillNode): string {
+  if (node.slug) {
+    const catalogParent = getCatalogParentSlug(node.slug);
+    if (catalogParent) return catalogParent;
+  }
+
+  const slug = (node.slug ?? '').toLowerCase();
+  const name = node.name.toLowerCase();
+  const haystack = `${slug} ${name}`;
+
+  if (node.macroArea === 'mental_emotional') {
+    if (haystack.includes('phil') || haystack.includes('filosof') || haystack.includes('estoic')) {
+      return 'discipline_specialization_filosofia';
+    }
+    if (
+      haystack.includes('read') ||
+      haystack.includes('lectura') ||
+      haystack.includes('cierre') ||
+      haystack.includes('dicotomia') ||
+      haystack.includes('perspectiva')
+    ) {
+      return 'discipline_specialization_lectura';
+    }
+    return NEN_MOTHER_SLUG_BY_ID.specialization;
+  }
+
+  return NEN_ROOT_SLUG_BY_MACRO[node.macroArea];
+}
+
+function isOrphanedNode(node: SkillNode, validIds: Set<number>): boolean {
+  if (node.layer === 'root' || node.layer === 'wildcard') return false;
+  if (node.parentId != null && validIds.has(node.parentId)) return false;
+
+  if (node.parentId != null && !validIds.has(node.parentId)) return true;
+
+  if (node.parentId == null && (node.layer === 'custom' || node.layer === 'locked')) {
+    if (!node.slug) return false;
+    if (getCatalogParentSlug(node.slug)) return false;
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Reasigna parent_id de nodos cuyo padre ya no existe (p. ej. slugs legacy eliminados).
+ * No elimina nodos — solo repara la jerarquía.
+ */
+export async function repairOrphanedNodes(db: AppDatabase): Promise<number> {
+  const rows = await db.getAllAsync('SELECT * FROM nodes ORDER BY id ASC');
+  if (rows.length === 0) return 0;
+
+  const nodes = rows.map((row) => mapNode(row as Record<string, unknown>));
+  const validIds = new Set(nodes.map((node) => node.id));
+  const slugToId = new Map<string, number>();
+  for (const node of nodes) {
+    if (node.slug) slugToId.set(node.slug, node.id);
+  }
+
+  const repairs: {
+    nodeId: number;
+    slug: string | null;
+    oldParentId: number | null;
+    newParentSlug: string;
+    newParentId: number;
+  }[] = [];
+
+  for (const node of nodes) {
+    if (!isOrphanedNode(node, validIds)) continue;
+
+    const newParentSlug = resolveOrphanParentSlug(node);
+    const newParentId = slugToId.get(newParentSlug);
+    if (newParentId == null) {
+      if (typeof __DEV__ !== 'undefined' && __DEV__) {
+        console.warn(
+          `[repairOrphanedNodes] Padre destino no encontrado para «${node.slug ?? node.name}» → ${newParentSlug}`
+        );
+      }
       continue;
     }
 
-    const root = roots.find((r) => r.macroArea === node.macroArea);
-    if (root) {
-      parentId = root.id;
-    }
+    if (node.parentId === newParentId) continue;
 
-    if (parentId != null) {
-      await db.runAsync('UPDATE nodes SET parent_id = ? WHERE id = ?', parentId, node.id);
-    }
+    await db.runAsync('UPDATE nodes SET parent_id = ? WHERE id = ?', newParentId, node.id);
+    repairs.push({
+      nodeId: node.id,
+      slug: node.slug,
+      oldParentId: node.parentId,
+      newParentSlug,
+      newParentId,
+    });
   }
+
+  if (repairs.length > 0) {
+    console.log(`[repairOrphanedNodes] ${repairs.length} nodo(s) reparado(s):`, repairs);
+  } else if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    console.log('[repairOrphanedNodes] 0 nodos huérfanos');
+  }
+
+  return repairs.length;
 }
 
 export async function syncCustomNodePositions(db: AppDatabase): Promise<void> {
@@ -320,9 +424,10 @@ export async function bootstrapDb(db: AppDatabase): Promise<void> {
     await backfillNodeDecayCategories(db);
   } else {
     await syncRootNodes(db);
-    await syncCustomNodeParentIds(db);
     await syncWildcardNodes(db);
     await syncCatalogNodes(db);
+    await syncCustomNodeParentIds(db);
+    await repairOrphanedNodes(db);
 
     const rowsBefore = await db.getAllAsync('SELECT * FROM nodes ORDER BY id ASC');
     const nodesBefore = rowsBefore.map((row) => mapNode(row as Record<string, unknown>));

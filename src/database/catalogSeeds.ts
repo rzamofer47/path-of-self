@@ -2,8 +2,11 @@ import {
   buildSkillCatalogSeeds,
   CatalogNodeSeed,
 } from '@/src/data/skillCatalogSeeds';
+import { LEGACY_INTELLECTUAL_LOCKED_SLUGS } from '@/src/data/intellectualLegacyCatalog';
+import { LEGACY_TRANSFORMATION_LOCKED_SLUGS } from '@/src/data/transformationGalaxyCatalog';
 import { LEGACY_MENTAL_LOCKED_SLUGS } from '@/src/data/mentalEmotionalGalaxyCatalog';
 import { LEGACY_PHYSICAL_LOCKED_SLUGS } from '@/src/data/physicalGalaxyCatalog';
+import { LEGACY_MANIPULATION_CODING_SLUGS } from '@/src/data/manipulationGalaxyCatalog';
 import { LEGACY_PRODUCTIVE_LOCKED_SLUGS } from '@/src/data/productiveGalaxyCatalog';
 import { mapNode } from './mappers';
 import { AppDatabase } from './db.types';
@@ -43,7 +46,10 @@ export async function syncCatalogNodes(db: AppDatabase): Promise<void> {
   for (const legacySlug of [
     ...LEGACY_PHYSICAL_LOCKED_SLUGS,
     ...LEGACY_MENTAL_LOCKED_SLUGS,
+    ...LEGACY_MANIPULATION_CODING_SLUGS,
     ...LEGACY_PRODUCTIVE_LOCKED_SLUGS,
+    ...LEGACY_TRANSFORMATION_LOCKED_SLUGS,
+    ...LEGACY_INTELLECTUAL_LOCKED_SLUGS,
   ]) {
     if (seedSlugs.has(legacySlug)) continue;
     const legacy = nodes.find((node) => node.slug === legacySlug && node.layer === 'locked');
@@ -69,6 +75,10 @@ export async function syncCatalogNodes(db: AppDatabase): Promise<void> {
     const decayCategoria = decayCategoriaForSlug(seed.slug);
 
     if (existing) {
+      const youtubeUrl = seed.youtubeUrl ?? seed.guideUrl ?? null;
+      const colorRole = seed.colorRole ?? 'standard';
+      const decayCategoria = decayCategoriaForSlug(seed.slug);
+
       if (existing.layer === 'locked') {
         await db.runAsync(
           `UPDATE nodes SET
@@ -97,8 +107,29 @@ export async function syncCatalogNodes(db: AppDatabase): Promise<void> {
           decayCategoria,
           existing.id
         );
-        slugToId.set(seed.slug, existing.id);
+      } else {
+        // Nodo de catálogo ya activado (custom): conservar XP pero reparar jerarquía en SQLite.
+        await db.runAsync(
+          `UPDATE nodes SET
+            name = ?,
+            type = ?,
+            macro_area = ?,
+            parent_id = ?,
+            guide_url = ?,
+            color_role = ?,
+            decay_categoria = ?
+           WHERE id = ?`,
+          seed.name,
+          seed.type,
+          seed.macroArea,
+          parentId,
+          youtubeUrl,
+          colorRole,
+          decayCategoria,
+          existing.id
+        );
       }
+      slugToId.set(seed.slug, existing.id);
       continue;
     }
 

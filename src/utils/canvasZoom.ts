@@ -25,6 +25,7 @@ export function clampZoom(
   minScale: number,
   maxScale = CANVAS_ZOOM.MAX
 ): number {
+  'worklet';
   return Math.min(maxScale, Math.max(minScale, scale));
 }
 
@@ -57,6 +58,7 @@ export function zoomAroundPoint(
   focalX: number,
   focalY: number
 ): { x: number; y: number } {
+  'worklet';
   const canvasX = (focalX - translateX) / currentScale;
   const canvasY = (focalY - translateY) / currentScale;
   return {

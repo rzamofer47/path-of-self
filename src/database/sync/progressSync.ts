@@ -2,7 +2,7 @@ import { isSupabaseEnabled } from '@/src/config/env';
 import { getDatabase } from '@/src/database/localSchema';
 import { asRow, mapNode } from '@/src/database/mappers';
 import { getNodeStreakStatsForNode } from '@/src/database/queryEngine.local';
-import { ensureSupabaseSession, getAuthUserId, getSupabase } from '@/src/lib/supabase';
+import { ensureSupabaseSession, getSupabase } from '@/src/lib/supabase';
 import { SkillNode } from '@/src/types';
 
 export interface SyncResult {
@@ -201,6 +201,56 @@ async function loadLocalProgressRows(): Promise<
   return result;
 }
 
+/** Borra progreso en SQLite local (evita re-subir datos viejos tras reinicio en otro dispositivo). */
+async function clearLocalSyncProgress(): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync(
+    `UPDATE nodes SET
+      level = 1,
+      xp = 0,
+      daily_verified_at = NULL,
+      is_deleted = 0,
+      progress_updated_at = NULL,
+      layer = CASE WHEN layer = 'custom' THEN 'locked' ELSE layer END
+     WHERE id > 0`
+  );
+  await db.runAsync('DELETE FROM nen_history');
+}
+
+/**
+ * Si la nube no tiene node_progress ni checks en nodes pero el SQLite local sí,
+ * otro dispositivo hizo reinicio total — descartar local antes de push.
+ */
+async function discardStaleLocalIfCloudWasReset(userId: string): Promise<boolean> {
+  const supabase = getSupabase();
+
+  const { count: remoteProgressCount, error: progressError } = await supabase
+    .from('node_progress')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId);
+
+  if (progressError && !isMissingTableError(progressError)) throw progressError;
+  if ((remoteProgressCount ?? 0) > 0) return false;
+
+  const localRows = await loadLocalProgressRows();
+  if (localRows.length === 0) return false;
+
+  const { count: verifiedInCloud, error: nodesError } = await supabase
+    .from('nodes')
+    .select('*', { count: 'exact', head: true })
+    .eq('auth_id', userId)
+    .not('daily_verified_at', 'is', null);
+
+  if (nodesError) throw nodesError;
+  if ((verifiedInCloud ?? 0) > 0) return false;
+
+  await clearLocalSyncProgress();
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    console.log('[Sync] Progreso local descartado — la nube fue reiniciada en otro dispositivo');
+  }
+  return true;
+}
+
 async function applyRemoteProgressToLocal(remote: CloudNodeProgress): Promise<boolean> {
   const db = await getDatabase();
   let localRow = await db.getFirstAsync(
@@ -235,13 +285,15 @@ async function applyRemoteProgressToLocal(remote: CloudNodeProgress): Promise<bo
       xp = ?,
       daily_verified_at = ?,
       is_deleted = ?,
-      progress_updated_at = ?
+      progress_updated_at = ?,
+      layer = CASE WHEN layer = 'locked' AND ? IS NOT NULL THEN 'custom' ELSE layer END
      WHERE id = ?`,
     remote.nivel,
     remote.xp,
     remote.last_check_date,
     remote.is_deleted ? 1 : 0,
     remote.updated_at,
+    remote.last_check_date,
     local.id
   );
 
@@ -326,11 +378,59 @@ async function pushLocalNenHistory(userId: string): Promise<void> {
   if (error) throw error;
 }
 
+/** Aplica progreso remoto al nodo equivalente en Supabase (misma cuenta = misma nube). */
+async function applyRemoteProgressToSupabase(
+  remote: CloudNodeProgress,
+  authId: string
+): Promise<boolean> {
+  if (remote.node_id.startsWith('local:')) return false;
+
+  const supabase = getSupabase();
+  const { data: row, error } = await supabase
+    .from('nodes')
+    .select('*')
+    .eq('auth_id', authId)
+    .eq('slug', remote.node_id)
+    .maybeSingle();
+
+  if (error || !row) return false;
+
+  const nodeUpdated =
+    (row.daily_verified_at as string | null) ??
+    (row.last_practice_at as string | null) ??
+    (row.created_at as string | null) ??
+    '';
+
+  if (
+    nodeUpdated &&
+    new Date(nodeUpdated).getTime() >= new Date(remote.updated_at).getTime()
+  ) {
+    return false;
+  }
+
+  const nextLayer =
+    remote.last_check_date && row.layer === 'locked' ? 'custom' : row.layer;
+
+  const { error: updateError } = await supabase
+    .from('nodes')
+    .update({
+      level: remote.nivel,
+      xp: remote.xp,
+      daily_verified_at: remote.last_check_date,
+      is_deleted: remote.is_deleted,
+      layer: nextLayer,
+    })
+    .eq('id', row.id)
+    .eq('auth_id', authId);
+
+  return !updateError;
+}
+
 export async function pullProgressFromCloud(): Promise<number> {
   if (!isSupabaseEnabled()) return 0;
 
-  await ensureSupabaseSession();
-  const userId = await getAuthUserId();
+  const userId = await ensureSupabaseSession();
+  if (!userId) return 0;
   const supabase = getSupabase();
 
   const { data: remoteNodes, error: nodeError } = await supabase
@@ -345,8 +445,10 @@ export async function pullProgressFromCloud(): Promise<number> {
 
   let applied = 0;
   for (const row of remoteNodes ?? []) {
-    const appliedOne = await applyRemoteProgressToLocal(row as CloudNodeProgress);
-    if (appliedOne) applied += 1;
+    const progress = row as CloudNodeProgress;
+    const appliedCloud = await applyRemoteProgressToSupabase(progress, userId);
+    const appliedLocal = await applyRemoteProgressToLocal(progress);
+    if (appliedCloud || appliedLocal) applied += 1;
   }
 
   const { data: remoteNen, error: nenError } = await supabase
@@ -372,8 +474,8 @@ export async function pullProgressFromCloud(): Promise<number> {
 export async function pushProgressToCloud(): Promise<number> {
   if (!isSupabaseEnabled()) return 0;
 
-  await ensureSupabaseSession();
-  const userId = await getAuthUserId();
+  const userId = await ensureSupabaseSession();
+  if (!userId) return 0;
   const supabase = getSupabase();
   const localRows = await loadLocalProgressRows();
 
@@ -465,6 +567,62 @@ export async function clearCloudProgressForCurrentUser(): Promise<void> {
   }
 }
 
+/**
+ * Reinicio total en modo nube: borra nodos, historial y progreso del usuario en Supabase.
+ * Tras volver a iniciar sesión, prepareSupabaseUser re-siembra el árbol inicial.
+ */
+export async function clearCloudAccountForFullReset(): Promise<void> {
+  if (!isSupabaseEnabled()) return;
+
+  const authId = await ensureSupabaseSession();
+  if (!authId) {
+    throw new Error('Inicia sesión con Google antes del reinicio total para borrar la nube.');
+  }
+
+  const supabase = getSupabase();
+
+  // history_logs no tiene política DELETE — borrar nodes cascada el historial (FK).
+  const deleteSteps: { table: string; column: string }[] = [
+    { table: 'node_progress', column: 'user_id' },
+    { table: 'nen_history_cloud', column: 'user_id' },
+    { table: 'nodes', column: 'auth_id' },
+  ];
+
+  for (const { table, column } of deleteSteps) {
+    const { error } = await supabase.from(table).delete().eq(column, authId);
+    if (error && !isMissingTableError(error)) {
+      console.error(`[Sync] clearCloudAccountForFullReset ${table}:`, error);
+      throw new Error(
+        `No se pudo borrar ${table} en la nube: ${error.message ?? 'error desconocido'}`
+      );
+    }
+  }
+
+  const { count, error: countError } = await supabase
+    .from('nodes')
+    .select('*', { count: 'exact', head: true })
+    .eq('auth_id', authId);
+
+  if (countError && !isMissingTableError(countError)) {
+    throw new Error(`No se pudo verificar el borrado en la nube: ${countError.message}`);
+  }
+  if ((count ?? 0) > 0) {
+    throw new Error(
+      'Quedaron nodos en la nube tras el reinicio. Revisa políticas RLS (DELETE) en Supabase.'
+    );
+  }
+
+  const { error: profileError } = await supabase
+    .from('profiles')
+    .update({ onboarding_complete: false })
+    .eq('auth_id', authId);
+
+  if (profileError && !isMissingTableError(profileError)) {
+    console.error('[Sync] clearCloudAccountForFullReset profiles:', profileError);
+    throw profileError;
+  }
+}
+
 /** Merge bidireccional al abrir: nube → local (más reciente gana), luego local → nube. */
 export async function mergeProgressOnOpen(): Promise<SyncResult> {
   if (!isSupabaseEnabled()) {
@@ -489,7 +647,8 @@ export async function mergeProgressOnOpen(): Promise<SyncResult> {
     }
 
     const pulled = await pullProgressFromCloud();
-    const pushed = await pushProgressToCloud();
+    const discardedStale = await discardStaleLocalIfCloudWasReset(authId);
+    const pushed = discardedStale ? 0 : await pushProgressToCloud();
     return {
       ok: true,
       message: 'Progreso guardado en la nube ✓',

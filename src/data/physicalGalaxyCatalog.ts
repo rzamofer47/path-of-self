@@ -1,270 +1,90 @@
 import { CatalogNodeSeed } from '@/src/data/skillCatalogSeeds';
 import { NEN_MOTHER_SLUG_BY_ID } from '@/src/config/nenMotherRoots';
-import { MacroArea, NodeColorRole, NodeType } from '@/src/types';
+import { NodeType } from '@/src/types';
+import {
+  buildLinearGalaxyBranch,
+  CatalogBranchNodeDef,
+  LinearGalaxyNodeDef,
+  toCatalogSeeds,
+} from '@/src/data/catalogBranchBuilder';
 
 export type PhysicalBranch = 'gimnasio' | 'judo' | 'fisioterapia';
 
-export type CatalogColorRole = NodeColorRole;
+const INTENSIFICATION_ROOT = NEN_MOTHER_SLUG_BY_ID.intensification;
 
-export interface PhysicalGalaxyNodeDef {
-  slug: string;
-  name: string;
-  parentSlug: string;
-  generation: 0 | 1 | 2 | 3 | 4 | 5 | 6;
-  branch: PhysicalBranch;
-  youtubeUrl: string;
-  colorRole?: CatalogColorRole;
-}
-
-/** @deprecated Usar GENERATION_RADII_BY_LEVEL en mapGeometry.ts */
-export { PHYSICAL_GENERATION_RADII } from '@/src/utils/mapGeometry';
-
-const BRANCH_ROOT_SLUG: Record<PhysicalBranch, string> = {
-  gimnasio: NEN_MOTHER_SLUG_BY_ID.intensification,
-  judo: NEN_MOTHER_SLUG_BY_ID.transformation,
-  fisioterapia: NEN_MOTHER_SLUG_BY_ID.transformation,
+const BRANCH_ROOT: Record<PhysicalBranch, string> = {
+  gimnasio: INTENSIFICATION_ROOT,
+  judo: INTENSIFICATION_ROOT,
+  fisioterapia: INTENSIFICATION_ROOT,
 };
 
-function ytSearch(query: string): string {
-  return `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
-}
-
-interface BranchNodeDef {
-  slug: string;
-  name: string;
-  youtubeQuery: string;
-  colorRole?: CatalogColorRole;
-}
-
-function buildBranchNodes(
-  branch: PhysicalBranch,
-  vertienteName: string,
-  vertienteQuery: string,
-  generations: BranchNodeDef[][]
-): PhysicalGalaxyNodeDef[] {
-  const vertSlug = `discipline_physical_${branch}`;
-  const nodes: PhysicalGalaxyNodeDef[] = [
-    {
-      slug: vertSlug,
-      name: vertienteName,
-      parentSlug: BRANCH_ROOT_SLUG[branch],
-      generation: 0,
-      branch,
-      youtubeUrl: ytSearch(vertienteQuery),
-      colorRole: 'standard',
-    },
-  ];
-
-  let previousSlugs = [vertSlug];
-
-  generations.forEach((generationNodes, generationIndex) => {
-    const generation = (generationIndex + 1) as PhysicalGalaxyNodeDef['generation'];
-    const currentSlugs: string[] = [];
-
-    generationNodes.forEach((node, slotIndex) => {
-      const parentSlug =
-        generation === 1 ? vertSlug : previousSlugs[slotIndex % previousSlugs.length];
-
-      currentSlugs.push(node.slug);
-      nodes.push({
-        slug: node.slug,
-        name: node.name,
-        parentSlug,
-        generation,
-        branch,
-        youtubeUrl: ytSearch(node.youtubeQuery),
-        colorRole: node.colorRole ?? 'standard',
-      });
-    });
-
-    previousSlugs = currentSlugs;
-  });
-
-  return nodes;
-}
-
-const GIMNASIO_GENERATIONS: BranchNodeDef[][] = [
-  [
-    { slug: 'phy_gym_squat', name: 'Sentadilla (Squat)', youtubeQuery: 'sentadilla técnica correcta español' },
-    { slug: 'phy_gym_deadlift', name: 'Peso Muerto (Deadlift)', youtubeQuery: 'peso muerto técnica correcta español' },
-    { slug: 'phy_gym_hip_thrust', name: 'Hip Thrust', youtubeQuery: 'hip thrust glúteos técnica español' },
-  ],
-  [
-    { slug: 'phy_gym_back_row', name: 'Tracción de Espalda', youtubeQuery: 'remo con barra espalda técnica español' },
-    { slug: 'phy_gym_bulgarian_split', name: 'Sentadilla Búlgara', youtubeQuery: 'sentadilla búlgara técnica español' },
-    { slug: 'phy_gym_shoulder_press', name: 'Press de Hombros', youtubeQuery: 'press militar hombros técnica español' },
-    { slug: 'phy_gym_bicep_curl', name: 'Curl de Bíceps', youtubeQuery: 'curl bíceps mancuernas técnica español' },
-  ],
-  [
-    { slug: 'phy_gym_farmers_walk', name: 'Paseo del Granjero', youtubeQuery: 'farmer walk técnica español' },
-    { slug: 'phy_gym_dumbbell_bench', name: 'Press Banca con Mancuernas', youtubeQuery: 'press banca mancuernas técnica español' },
-    { slug: 'phy_gym_dynamic_plank', name: 'Plancha Dinámica Core', youtubeQuery: 'plancha abdominal dinámica español' },
-  ],
-  [
-    { slug: 'phy_gym_paused_squat', name: 'Sentadilla Pausada', youtubeQuery: 'sentadilla pausada powerlifting español' },
-    { slug: 'phy_gym_deficit_deadlift', name: 'Peso Muerto Déficit', youtubeQuery: 'deadlift déficit técnica español' },
-    { slug: 'phy_gym_iso_hip_thrust', name: 'Hip Thrust Isométrico', youtubeQuery: 'hip thrust isométrico glúteos español' },
-  ],
-  [
-    { slug: 'phy_gym_quad_extension', name: 'Extensiones de Cuádriceps', youtubeQuery: 'extension cuádriceps máquina español' },
-    { slug: 'phy_gym_supported_row', name: 'Remo con Apoyo', youtubeQuery: 'remo con apoyo pecho técnica español' },
-    { slug: 'phy_gym_lateral_raise', name: 'Elevaciones Laterales', youtubeQuery: 'elevaciones laterales hombro español' },
-    {
-      slug: 'phy_gym_iron_mind_bar',
-      name: 'Mente de Hierro ante la Barra',
-      youtubeQuery: 'estoicismo entrenamiento fuerza dolor muscular español',
-      colorRole: 'shared',
-    },
-  ],
-  [
-    {
-      slug: 'phy_gym_max_potential',
-      name: 'Máximo Potencial Estimulado',
-      youtubeQuery: 'periodización hipertrofia avanzada español',
-      colorRole: 'critical',
-    },
-  ],
+const GIMNASIO: CatalogBranchNodeDef[][] = [
+  [{ slug: 'phy_gym_g1', name: 'G1: Técnicas Base (Sentadilla, Peso Muerto, Press)', youtubeQuery: 'sentadilla peso muerto press banca técnica español' }],
+  [{ slug: 'phy_gym_g2', name: 'G2: Construcción de Volumen (series, descanso, nutrición básica)', youtubeQuery: 'volumen hipertrofia series descanso nutrición español' }],
+  [{ slug: 'phy_gym_g3', name: 'G3: Fuerza Progresiva (periodización, 1RM, sobrecarga)', youtubeQuery: 'periodización fuerza 1RM sobrecarga progresiva español' }],
+  [{ slug: 'phy_gym_g4', name: 'G4: Composición Corporal (déficit/superávit, mediciones)', youtubeQuery: 'composición corporal déficit superávit mediciones español' }],
+  [{ slug: 'phy_gym_g5', name: 'G5: ★ Atleta Funcional', youtubeQuery: 'atleta funcional entrenamiento integrado español', colorRole: 'critical' }],
 ];
 
-const JUDO_GENERATIONS: BranchNodeDef[][] = [
-  [
-    { slug: 'phy_judo_reiho', name: 'Reiho (Saludo)', youtubeQuery: 'judo reiho saludo etiqueta español' },
-    { slug: 'phy_judo_shisei', name: 'Shisei (Posturas)', youtubeQuery: 'judo shisei postura natural español' },
-    { slug: 'phy_judo_shintai', name: 'Shintai (Desplazamientos)', youtubeQuery: 'judo tsukuri desplazamientos español' },
-    { slug: 'phy_judo_ukemi', name: 'Ukemi (Caídas)', youtubeQuery: 'judo ukemi caídas principiantes español' },
-    { slug: 'phy_judo_kuzushi', name: 'Kuzushi (Desequilibrio)', youtubeQuery: 'judo kuzushi desequilibrio español' },
-  ],
-  [
-    { slug: 'phy_judo_de_ashi_harai', name: 'De-Ashi-Harai', youtubeQuery: 'judo de ashi harai español' },
-    { slug: 'phy_judo_hiza_guruma', name: 'Hiza-Guruma', youtubeQuery: 'judo hiza guruma español' },
-    { slug: 'phy_judo_sasae_tsuri', name: 'Sasae-Tsuri-Komi-Ashi', youtubeQuery: 'judo sasae tsurikomi ashi español' },
-    { slug: 'phy_judo_uki_goshi', name: 'Uki-Goshi', youtubeQuery: 'judo uki goshi español' },
-    { slug: 'phy_judo_o_soto_gari', name: 'O-Soto-Gari', youtubeQuery: 'judo o soto gari español' },
-    { slug: 'phy_judo_o_goshi', name: 'O-Goshi', youtubeQuery: 'judo o goshi español' },
-    { slug: 'phy_judo_o_uchi_gari', name: 'O-Uchi-Gari', youtubeQuery: 'judo o uchi gari español' },
-    { slug: 'phy_judo_seoi_nage', name: 'Seoi-Nage', youtubeQuery: 'judo seoi nage español' },
-  ],
-  [
-    { slug: 'phy_judo_kosoto_gari', name: 'Kosoto-Gari', youtubeQuery: 'judo kosoto gari español' },
-    { slug: 'phy_judo_kouchi_gari', name: 'Kouchi-Gari', youtubeQuery: 'judo kouchi gari español' },
-    { slug: 'phy_judo_koshi_guruma', name: 'Koshi-Guruma', youtubeQuery: 'judo koshi guruma español' },
-    { slug: 'phy_judo_tsuri_komi_goshi', name: 'Tsuri-Komi-Goshi', youtubeQuery: 'judo tsurikomi goshi español' },
-    { slug: 'phy_judo_okuri_ashi_harai', name: 'Okuri-Ashi-Harai', youtubeQuery: 'judo okuri ashi harai español' },
-    { slug: 'phy_judo_tai_otoshi', name: 'Tai-Otoshi', youtubeQuery: 'judo tai otoshi español' },
-    { slug: 'phy_judo_ne_waza', name: 'Ne-Waza (Suelo)', youtubeQuery: 'judo ne waza suelo español' },
-  ],
-  [
-    { slug: 'phy_judo_harai_goshi', name: 'Harai-Goshi', youtubeQuery: 'judo harai goshi español' },
-    { slug: 'phy_judo_uchimata', name: 'Uchimata', youtubeQuery: 'judo uchimata español' },
-    { slug: 'phy_judo_tomoe_nage', name: 'Tomoe-Nage', youtubeQuery: 'judo tomoe nage español' },
-    { slug: 'phy_judo_kata_guruma', name: 'Kata-Guruma', youtubeQuery: 'judo kata guruma español' },
-  ],
-  [
-    {
-      slug: 'phy_judo_hybrid_hip_ogoshi',
-      name: 'Fuerza Explosiva de Cadera (Hip Thrust + O-Goshi)',
-      youtubeQuery: 'hip thrust potencia cadera judo español',
-      colorRole: 'shared',
-    },
-    {
-      slug: 'phy_judo_hybrid_grip_kumikata',
-      name: 'Tracción de Solapa Asistida (Espalda + Kumi-Kata)',
-      youtubeQuery: 'kumi kata agarre judo tracción español',
-      colorRole: 'shared',
-    },
-  ],
-  [
-    {
-      slug: 'phy_judo_shodan',
-      name: 'Shodan Cinturón Negro',
-      youtubeQuery: 'judo examen cinturón negro shodan español',
-      colorRole: 'critical',
-    },
-  ],
+const JUDO: CatalogBranchNodeDef[][] = [
+  [{ slug: 'phy_judo_j1', name: 'J1: Fundamentos (Ukemi, Kuzushi, Reiho, postura)', youtubeQuery: 'judo ukemi kuzushi reiho fundamentos español' }],
+  [{ slug: 'phy_judo_j2', name: 'J2: Técnicas de Pie Gokyo (De-Ashi, O-Goshi, Seoi-Nage)', youtubeQuery: 'judo gokyo de ashi o goshi seoi nage español' }],
+  [{ slug: 'phy_judo_j3', name: 'J3: Ne-Waza (suelo, inmovilizaciones, estrangulaciones)', youtubeQuery: 'judo ne waza suelo inmovilizaciones español' }],
+  [{ slug: 'phy_judo_j4', name: 'J4: Competencia y Randori libre', youtubeQuery: 'judo randori competencia entrenamiento español' }],
+  [{ slug: 'phy_judo_j5', name: 'J5: ★ Shodan — Cinturón Negro', youtubeQuery: 'judo examen cinturón negro shodan español', colorRole: 'critical' }],
 ];
 
-const FISIOTERAPIA_GENERATIONS: BranchNodeDef[][] = [
-  [
-    { slug: 'phy_physio_hip_9090', name: 'Movilidad de Cadera 90/90', youtubeQuery: 'movilidad cadera 90 90 español' },
-    { slug: 'phy_physio_scapular_ywt', name: 'Estabilidad Escapular YWT', youtubeQuery: 'ejercicios Y T W escápula español' },
-    { slug: 'phy_physio_ankle_dorsiflex', name: 'Dorsiflexión de Tobillo', youtubeQuery: 'movilidad tobillo dorsiflexión español' },
-  ],
-  [
-    { slug: 'phy_physio_patellar_iso', name: 'Isometría de Tendón Rotuliano', youtubeQuery: 'isométrico cuádriceps tendón rotuliano español' },
-    { slug: 'phy_physio_cat_camel', name: 'Gato-Camello Columna', youtubeQuery: 'ejercicio gato camello columna español' },
-    { slug: 'phy_physio_wrist_strength', name: 'Fortalecimiento de Muñecas', youtubeQuery: 'fortalecer muñecas antebrazo español' },
-  ],
-  [
-    { slug: 'phy_physio_psoas_stretch', name: 'Estiramiento de Psoas', youtubeQuery: 'estiramiento psoas iliaco español' },
-    { slug: 'phy_physio_thoracic_roller', name: 'Apertura Torácica con Rodillo', youtubeQuery: 'movilidad torácica foam roller español' },
-    { slug: 'phy_physio_lumbar_decompression', name: 'Descompresión Lumbar en Barra', youtubeQuery: 'descompresión lumbar colgarse barra español' },
-  ],
-  [
-    {
-      slug: 'phy_physio_glute_pre_squat',
-      name: 'Activación Glútea Pre-Sentadilla',
-      youtubeQuery: 'activación glúteos antes sentadilla español',
-      colorRole: 'shared',
-    },
-  ],
-  [
-    { slug: 'phy_physio_unilateral_balance', name: 'Equilibrio Unilateral Inestable', youtubeQuery: 'equilibrio unipodal inestable fisioterapia español' },
-    { slug: 'phy_physio_hip_suspension', name: 'Coordinación de Cadera en Suspensión', youtubeQuery: 'ejercicios cadera TRX suspensión español' },
-  ],
-  [
-    {
-      slug: 'phy_physio_antifragile',
-      name: 'Cuerpo Resiliente Antifrágil',
-      youtubeQuery: 'prevención lesiones fortalecimiento articular español',
-      colorRole: 'critical',
-    },
-  ],
+const FISIOTERAPIA: CatalogBranchNodeDef[][] = [
+  [{ slug: 'phy_physio_f1', name: 'F1: Movilidad Base (caderas, hombros, tobillo)', youtubeQuery: 'movilidad cadera hombro tobillo fisioterapia español' }],
+  [{ slug: 'phy_physio_f2', name: 'F2: Activación y Estabilización (core, escápulas, glúteos)', youtubeQuery: 'activación core escápulas glúteos estabilización español' }],
+  [{ slug: 'phy_physio_f3', name: 'F3: Prevención de Lesiones Específicas (rodilla, lumbar, muñeca)', youtubeQuery: 'prevención lesiones rodilla lumbar muñeca español' }],
+  [{ slug: 'phy_physio_f4', name: 'F4: ★ Cuerpo Antifrágil', youtubeQuery: 'cuerpo antifrágil prevención lesiones articular español', colorRole: 'shared' }],
 ];
 
-export const PHYSICAL_GALAXY_NODES: PhysicalGalaxyNodeDef[] = [
-  ...buildBranchNodes(
+export const PHYSICAL_GALAXY_NODES: LinearGalaxyNodeDef[] = [
+  ...buildLinearGalaxyBranch(
     'gimnasio',
-    'Gimnasio (Hipertrofia)',
-    'hipertrofia rutina gimnasio principiante español',
-    GIMNASIO_GENERATIONS
+    'discipline_physical_gimnasio',
+    'Gimnasio — Hipertrofia y Fuerza',
+    'hipertrofia rutina gimnasio fuerza español',
+    BRANCH_ROOT.gimnasio,
+    'physical',
+    'physical',
+    GIMNASIO
   ),
-  ...buildBranchNodes(
+  ...buildLinearGalaxyBranch(
     'judo',
-    'Judo (Camino de Cinturones)',
-    'judo fundamentos principiantes español',
-    JUDO_GENERATIONS
+    'discipline_physical_judo',
+    'Judo — Camino de Cinturones',
+    'judo camino cinturones fundamentos español',
+    BRANCH_ROOT.judo,
+    'physical',
+    'physical',
+    JUDO
   ),
-  ...buildBranchNodes(
+  ...buildLinearGalaxyBranch(
     'fisioterapia',
-    'Fisioterapia (Blindaje Articular)',
-    'fisioterapia prevención lesiones articular español',
-    FISIOTERAPIA_GENERATIONS
+    'discipline_physical_fisioterapia',
+    'Fisioterapia — Blindaje Articular',
+    'fisioterapia blindaje articular movilidad español',
+    BRANCH_ROOT.fisioterapia,
+    'physical',
+    'physical',
+    FISIOTERAPIA
   ),
 ];
 
 export function buildPhysicalGalaxyCatalogSeeds(): CatalogNodeSeed[] {
-  return PHYSICAL_GALAXY_NODES.map((node) => ({
-    slug: node.slug,
-    name: node.name,
-    type: 'physical',
-    macroArea: 'physical',
-    parentSlug: node.parentSlug,
-    generation: node.generation,
-    posX: 0,
-    posY: 0,
-    youtubeUrl: node.youtubeUrl,
-    colorRole: node.colorRole ?? 'standard',
-  }));
+  return toCatalogSeeds(PHYSICAL_GALAXY_NODES);
 }
 
 export function getPhysicalBranchGenOneChildren(
   branchKey: string
 ): { slug: string; name: string; type: NodeType }[] {
-  const branch = branchKey as PhysicalBranch;
-  if (!['gimnasio', 'judo', 'fisioterapia'].includes(branch)) return [];
+  if (!['gimnasio', 'judo', 'fisioterapia'].includes(branchKey)) return [];
 
   return PHYSICAL_GALAXY_NODES.filter(
-    (node) => node.branch === branch && node.generation === 1
+    (node) => node.branch === branchKey && node.generation === 1
   ).map((node) => ({
     slug: node.slug,
     name: node.name,
@@ -272,7 +92,7 @@ export function getPhysicalBranchGenOneChildren(
   }));
 }
 
-/** Slugs legacy del catálogo físico anterior que deben eliminarse al sincronizar. */
+/** Slugs legacy del catálogo físico anterior. */
 export const LEGACY_PHYSICAL_LOCKED_SLUGS = [
   'discipline_physical_karate',
   'discipline_physical_yoga',
@@ -288,4 +108,62 @@ export const LEGACY_PHYSICAL_LOCKED_SLUGS = [
   'disc_run_recuperacion',
   'guide_yoga',
   'guide_caminata',
+  'phy_gym_squat',
+  'phy_gym_deadlift',
+  'phy_gym_hip_thrust',
+  'phy_gym_back_row',
+  'phy_gym_bulgarian_split',
+  'phy_gym_shoulder_press',
+  'phy_gym_bicep_curl',
+  'phy_gym_farmers_walk',
+  'phy_gym_dumbbell_bench',
+  'phy_gym_dynamic_plank',
+  'phy_gym_paused_squat',
+  'phy_gym_deficit_deadlift',
+  'phy_gym_iso_hip_thrust',
+  'phy_gym_quad_extension',
+  'phy_gym_supported_row',
+  'phy_gym_lateral_raise',
+  'phy_gym_iron_mind_bar',
+  'phy_gym_max_potential',
+  'phy_judo_reiho',
+  'phy_judo_shisei',
+  'phy_judo_shintai',
+  'phy_judo_ukemi',
+  'phy_judo_kuzushi',
+  'phy_judo_de_ashi_harai',
+  'phy_judo_hiza_guruma',
+  'phy_judo_sasae_tsuri',
+  'phy_judo_uki_goshi',
+  'phy_judo_o_soto_gari',
+  'phy_judo_o_goshi',
+  'phy_judo_o_uchi_gari',
+  'phy_judo_seoi_nage',
+  'phy_judo_kosoto_gari',
+  'phy_judo_kouchi_gari',
+  'phy_judo_koshi_guruma',
+  'phy_judo_tsuri_komi_goshi',
+  'phy_judo_okuri_ashi_harai',
+  'phy_judo_tai_otoshi',
+  'phy_judo_ne_waza',
+  'phy_judo_harai_goshi',
+  'phy_judo_uchimata',
+  'phy_judo_tomoe_nage',
+  'phy_judo_kata_guruma',
+  'phy_judo_hybrid_hip_ogoshi',
+  'phy_judo_hybrid_grip_kumikata',
+  'phy_judo_shodan',
+  'phy_physio_hip_9090',
+  'phy_physio_scapular_ywt',
+  'phy_physio_ankle_dorsiflex',
+  'phy_physio_patellar_iso',
+  'phy_physio_cat_camel',
+  'phy_physio_wrist_strength',
+  'phy_physio_psoas_stretch',
+  'phy_physio_thoracic_roller',
+  'phy_physio_lumbar_decompression',
+  'phy_physio_glute_pre_squat',
+  'phy_physio_unilateral_balance',
+  'phy_physio_hip_suspension',
+  'phy_physio_antifragile',
 ];

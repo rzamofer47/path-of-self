@@ -206,6 +206,7 @@ export {
   mergeProgressOnOpen,
   pushProgressToCloud,
   clearCloudProgressForCurrentUser,
+  clearCloudAccountForFullReset,
   verifySupabaseBackupSchema,
 } from '@/src/database/sync/progressSync';
 export { shareProgressExport } from '@/src/database/sync/progressExport';

@@ -226,6 +226,23 @@ export function catalogChildPositionFromParent(
   );
 }
 
+/** Un paso (+250px) hacia afuera desde el padre — cadenas lineales G1→G2→…→G5. */
+export function catalogLinearChildFromParent(
+  parentLogX: number,
+  parentLogY: number,
+  slotIndex: number,
+  siblingCount: number,
+  halfFanRad = MENTAL_BRANCH_FAN_HALF_RAD
+): CatalogBranchPlacement {
+  const parentRadius = Math.hypot(parentLogX, parentLogY);
+  const branchVectorRad = Math.atan2(parentLogY, parentLogX);
+  const childRadius = parentRadius + GENERATION_GAP_PX;
+  const angles = siblingAnglesMicroFan(branchVectorRad, siblingCount, halfFanRad);
+  const angleRad = angles[slotIndex] ?? branchVectorRad;
+  const polar = polarCatalogPosition(angleRad, childRadius);
+  return { ...polar, angleRad, radius: childRadius };
+}
+
 /** Vertientes del Santuario Interior — vectores angulares exclusivos. */
 export type MentalGalaxyBranch = 'nervioso' | 'enfoque' | 'lectura';
 
@@ -245,6 +262,22 @@ export const MENTAL_BRANCH_VECTOR_RAD: Record<MentalGalaxyBranch, number> = {
 /** Micro-abanico ±15° para hermanos sobre el mismo vector de vertiente. */
 export const MENTAL_BRANCH_FAN_HALF_DEG = 15;
 export const MENTAL_BRANCH_FAN_HALF_RAD = (MENTAL_BRANCH_FAN_HALF_DEG * Math.PI) / 180;
+
+/** Vertientes del Núcleo de Manipulación — Nordeste (30°) con abanico ±15°. */
+export type ManipulationGalaxyBranch = 'manip_tiempo' | 'manip_recursos' | 'manip_biologica';
+
+/** Nordeste 30° ±15° — sin colisión con Intensificación (90°) ni Emisión (330°). */
+export const MANIPULATION_BRANCH_VECTOR_DEG: Record<ManipulationGalaxyBranch, number> = {
+  manip_tiempo: NEN_HEXAGON_VERTEX_DEG.manipulation - MENTAL_BRANCH_FAN_HALF_DEG,
+  manip_recursos: NEN_HEXAGON_VERTEX_DEG.manipulation,
+  manip_biologica: NEN_HEXAGON_VERTEX_DEG.manipulation + MENTAL_BRANCH_FAN_HALF_DEG,
+};
+
+export const MANIPULATION_BRANCH_VECTOR_RAD: Record<ManipulationGalaxyBranch, number> = {
+  manip_tiempo: canvasDegToRad(MANIPULATION_BRANCH_VECTOR_DEG.manip_tiempo),
+  manip_recursos: canvasDegToRad(MANIPULATION_BRANCH_VECTOR_DEG.manip_recursos),
+  manip_biologica: canvasDegToRad(MANIPULATION_BRANCH_VECTOR_DEG.manip_biologica),
+};
 
 const SECTOR_HALF_WIDTH_DEG = 40;
 const SECTOR_HALF_WIDTH_RAD = (SECTOR_HALF_WIDTH_DEG * Math.PI) / 180;

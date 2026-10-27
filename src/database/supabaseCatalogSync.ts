@@ -1,4 +1,10 @@
 import { buildSkillCatalogSeeds, CatalogNodeSeed } from '@/src/data/skillCatalogSeeds';
+import { LEGACY_INTELLECTUAL_LOCKED_SLUGS } from '@/src/data/intellectualLegacyCatalog';
+import { LEGACY_TRANSFORMATION_LOCKED_SLUGS } from '@/src/data/transformationGalaxyCatalog';
+import { LEGACY_MENTAL_LOCKED_SLUGS } from '@/src/data/mentalEmotionalGalaxyCatalog';
+import { LEGACY_PHYSICAL_LOCKED_SLUGS } from '@/src/data/physicalGalaxyCatalog';
+import { LEGACY_MANIPULATION_CODING_SLUGS } from '@/src/data/manipulationGalaxyCatalog';
+import { LEGACY_PRODUCTIVE_LOCKED_SLUGS } from '@/src/data/productiveGalaxyCatalog';
 import { WILDCARD_SEEDS, resolveWildcardSeedPlacement } from '@/src/data/wildcardSeeds';
 import { getSupabase } from '@/src/lib/supabase';
 import { decayCategoriaForSlug } from '@/src/utils/resolveNenDecayCategory';
@@ -46,7 +52,16 @@ function mapSupabaseNodeRow(row: Record<string, unknown>): SkillNode {
   });
 }
 
-/** Inserta nodos `locked` del catálogo que falten en la nube para este usuario. */
+const LEGACY_CATALOG_SLUGS = new Set([
+  ...LEGACY_PHYSICAL_LOCKED_SLUGS,
+  ...LEGACY_MENTAL_LOCKED_SLUGS,
+  ...LEGACY_MANIPULATION_CODING_SLUGS,
+  ...LEGACY_PRODUCTIVE_LOCKED_SLUGS,
+  ...LEGACY_TRANSFORMATION_LOCKED_SLUGS,
+  ...LEGACY_INTELLECTUAL_LOCKED_SLUGS,
+]);
+
+/** Inserta o actualiza nodos del catálogo en Supabase (fuente de verdad en Android con sesión). */
 export async function syncCatalogNodesToSupabase(authId: string): Promise<number> {
   const supabase = getSupabase();
 
@@ -58,35 +73,81 @@ export async function syncCatalogNodesToSupabase(authId: string): Promise<number
 
   if (error) throw error;
 
-  const nodes = (data ?? []).map((row) => mapSupabaseNodeRow(row as Record<string, unknown>));
+  let nodes = (data ?? []).map((row) => mapSupabaseNodeRow(row as Record<string, unknown>));
   const slugToId = new Map<string, number>();
   for (const node of nodes) {
     if (node.slug) slugToId.set(node.slug, node.id);
   }
 
   const seeds = orderSeedsByDependency(buildSkillCatalogSeeds(), slugToId);
+  const seedSlugs = new Set(seeds.map((seed) => seed.slug));
+
+  for (const legacySlug of LEGACY_CATALOG_SLUGS) {
+    if (seedSlugs.has(legacySlug)) continue;
+    const legacy = nodes.find((node) => node.slug === legacySlug && node.layer === 'locked');
+    if (!legacy) continue;
+
+    const { error: deleteError } = await supabase
+      .from('nodes')
+      .delete()
+      .eq('id', legacy.id)
+      .eq('auth_id', authId);
+
+    if (deleteError) throw deleteError;
+    nodes = nodes.filter((node) => node.id !== legacy.id);
+    slugToId.delete(legacySlug);
+  }
+
   let inserted = 0;
 
   for (const seed of seeds) {
     const existing = nodes.find((n) => n.slug === seed.slug);
     const parentId = slugToId.get(seed.parentSlug);
     if (parentId == null) {
-      if (typeof __DEV__ !== 'undefined' && __DEV__) {
-        console.warn(
-          `[Supabase catalog] Padre no resuelto para «${seed.slug}» → parentSlug=${seed.parentSlug}`
-        );
-      }
-      continue;
-    }
-
-    if (existing) {
-      if (existing.layer === 'locked') {
-        slugToId.set(seed.slug, existing.id);
-      }
+      console.warn(
+        `[Supabase catalog] Padre no resuelto para «${seed.slug}» → parentSlug=${seed.parentSlug}`
+      );
       continue;
     }
 
     const youtubeUrl = seed.youtubeUrl ?? seed.guideUrl ?? null;
+
+    if (existing) {
+      if (existing.layer === 'locked') {
+        const { error: updateError } = await supabase
+          .from('nodes')
+          .update({
+            name: seed.name,
+            type: seed.type,
+            macro_area: seed.macroArea,
+            pos_x: seed.posX,
+            pos_y: seed.posY,
+            parent_id: parentId,
+            guide_url: youtubeUrl,
+            origin_pos_x: seed.posX,
+            origin_pos_y: seed.posY,
+          })
+          .eq('id', existing.id)
+          .eq('auth_id', authId);
+        if (updateError) throw updateError;
+      } else {
+        const { error: updateError } = await supabase
+          .from('nodes')
+          .update({
+            name: seed.name,
+            type: seed.type,
+            macro_area: seed.macroArea,
+            parent_id: parentId,
+            guide_url: youtubeUrl,
+          })
+          .eq('id', existing.id)
+          .eq('auth_id', authId);
+        if (updateError) throw updateError;
+      }
+      slugToId.set(seed.slug, existing.id);
+      continue;
+    }
+
     const { data: created, error: insertError } = await supabase
       .from('nodes')
       .insert({

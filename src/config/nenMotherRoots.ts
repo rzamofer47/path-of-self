@@ -40,7 +40,7 @@ export const NEN_MOTHER_ROOTS: readonly NenMotherRootDef[] = [
   {
     id: 'intensification',
     slug: 'root_intensificacion',
-    name: 'Forja del Cuerpo: Intensificación',
+    name: 'Forja del Guerrero',
     type: 'physical',
     macroArea: 'physical',
     vectorDeg: NEN_HEXAGON_VERTEX_DEG.intensification,
@@ -48,7 +48,7 @@ export const NEN_MOTHER_ROOTS: readonly NenMotherRootDef[] = [
   {
     id: 'manipulation',
     slug: 'root_manipulacion',
-    name: 'Núcleo de Arquitectura Lógica',
+    name: 'El Estratega',
     type: 'intellectual',
     macroArea: 'productive',
     vectorDeg: NEN_HEXAGON_VERTEX_DEG.manipulation,
@@ -56,7 +56,7 @@ export const NEN_MOTHER_ROOTS: readonly NenMotherRootDef[] = [
   {
     id: 'emission',
     slug: 'root_emision',
-    name: 'Faro de Proyección Externa',
+    name: 'El Emisario',
     type: 'intellectual',
     macroArea: 'productive',
     vectorDeg: NEN_HEXAGON_VERTEX_DEG.emission,
@@ -64,7 +64,7 @@ export const NEN_MOTHER_ROOTS: readonly NenMotherRootDef[] = [
   {
     id: 'materialization',
     slug: 'root_materializacion',
-    name: 'Cámara del Intelecto: Materialización',
+    name: 'El Arquitecto',
     type: 'intellectual',
     macroArea: 'mental_emotional',
     vectorDeg: NEN_HEXAGON_VERTEX_DEG.materialization,
@@ -72,7 +72,7 @@ export const NEN_MOTHER_ROOTS: readonly NenMotherRootDef[] = [
   {
     id: 'transformation',
     slug: 'root_transformacion',
-    name: 'Altar de Transmutación Biológica',
+    name: 'El Gran Transmutador',
     type: 'physical',
     macroArea: 'physical',
     vectorDeg: NEN_HEXAGON_VERTEX_DEG.transformation,
@@ -80,7 +80,7 @@ export const NEN_MOTHER_ROOTS: readonly NenMotherRootDef[] = [
   {
     id: 'specialization',
     slug: 'root_especializacion',
-    name: 'Cámara del Analista / Filósofo',
+    name: 'El Filósofo',
     type: 'intellectual',
     macroArea: 'mental_emotional',
     vectorDeg: NEN_HEXAGON_VERTEX_DEG.specialization,
@@ -92,12 +92,12 @@ export const NEN_MOTHER_ROOTS: readonly NenMotherRootDef[] = [
  * Fuente única — `nenConfig.NEN_AXIS_VERTIENTES` debe importar este mapa.
  */
 export const NEN_MOTHER_VERTIENTE_KEYS: Record<NenMotherId, readonly string[]> = {
-  intensification: ['gimnasio'],
-  manipulation: ['coding'],
-  emission: ['writing'],
-  materialization: ['enfoque'],
-  transformation: ['judo', 'fisioterapia'],
-  specialization: ['nervioso', 'lectura'],
+  intensification: ['gimnasio', 'judo', 'fisioterapia'],
+  transformation: ['ingles', 'instrumento', 'meditacion'],
+  materialization: ['productos', 'clientes'],
+  emission: ['video', 'presencia'],
+  manipulation: ['inversiones', 'recursos'],
+  specialization: ['lectura', 'filosofia'],
 };
 
 export const NEN_MOTHER_VECTOR_DEG: Record<NenMotherId, number> = Object.fromEntries(

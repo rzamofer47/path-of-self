@@ -64,6 +64,22 @@ export function getNodeColorRole(node: SkillNode): NodeColorRole {
   return isRootNode(node) ? 'critical' : 'shared';
 }
 
+function hasActiveChildInTree(
+  nodeId: number,
+  nodes: SkillNode[],
+  user: User | null,
+  now: Date
+): boolean {
+  const windowMs = routineWindowMs(user);
+  return nodes.some((candidate) => {
+    if (candidate.parentId !== nodeId || candidate.isDeleted) return false;
+    if (verifiedTodayInRoutine(candidate, now) || engagedWithin(candidate, windowMs, now)) {
+      return true;
+    }
+    return hasActiveChildInTree(candidate.id, nodes, user, now);
+  });
+}
+
 /** ¿El nodo está activo en la rutina del usuario (brillo pleno)? */
 export function isNodeActiveInRoutine(
   node: SkillNode,
@@ -76,7 +92,8 @@ export function isNodeActiveInRoutine(
   const windowMs = routineWindowMs(user);
 
   if (node.layer === 'locked') {
-    return verifiedTodayInRoutine(node, now) || engagedWithin(node, windowMs, now);
+    if (verifiedTodayInRoutine(node, now) || engagedWithin(node, windowMs, now)) return true;
+    return hasActiveChildInTree(node.id, nodes, user, now);
   }
 
   if (isRootNode(node)) {

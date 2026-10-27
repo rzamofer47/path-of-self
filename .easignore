@@ -1,0 +1,6 @@
+# Artefactos de builds anteriores — no subir a EAS
+*.aab
+*.apk
+application-*.aab
+
+node_modules/

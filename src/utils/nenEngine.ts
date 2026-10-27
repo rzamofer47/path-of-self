@@ -2,7 +2,6 @@ import {
   EMPTY_NEN_PROFILE,
   isNenActiveNode,
   NEN_AXIS_MAX,
-  NEN_AXIS_SCALE,
   NEN_AXIS_VERTIENTES,
   NEN_AXIS_LABELS,
   NEN_AXIS_IDS_ORDER,
@@ -13,8 +12,16 @@ import {
   VERTIENTE_DISPLAY_NAMES,
   VertienteId,
 } from '@/src/config/nenConfig';
+import { getCatalogNodeMeta } from '@/src/data/catalogNodeIndex';
 import { NEN_HEXAGON_CLOCKWISE_FROM_NE, NEN_HEXAGON_VERTEX_DEG } from '@/src/utils/mapGeometry';
+import { isRootNode } from '@/src/utils/nodeMenuPolicy';
+import { resolveNodeCatalogGeneration } from '@/src/utils/nodeSectorLayout';
 import { SkillNode } from '@/src/types';
+
+function getParentNode(nodes: SkillNode[], node: SkillNode): SkillNode | null {
+  if (node.parentId == null) return null;
+  return nodes.find((candidate) => candidate.id === node.parentId) ?? null;
+}
 
 function clampAxis(value: number): number {
   return Math.min(NEN_AXIS_MAX, Math.max(0, value));
@@ -26,41 +33,77 @@ function averageAxisValues(values: number[]): number {
   return clampAxis(valid.reduce((acc, value) => acc + value, 0) / valid.length);
 }
 
-/** Peso por nodo activo + nivel — el radar crece al acumular checks/hijos. */
-const NEN_NODE_BASE = 10;
-/** Escala del acumulado por eje (sin suelo artificial — 0 = sin práctica real). */
-const NEN_AXIS_SUM_SCALE = 1.25;
+/** Aros del radar = generaciones 1…6 (Gen 6 = hito crítico en el borde). */
+const NEN_RING_GENERATIONS = 6;
 
-/** Valor 0-100 de un eje Nen agrupando raíces madre y vertientes activas. */
+function resolvePracticeGeneration(node: SkillNode, allNodes: SkillNode[]): number {
+  const meta = getCatalogNodeMeta(node.slug);
+  if (meta != null) {
+    return Math.min(NEN_RING_GENERATIONS, Math.max(0, meta.generation));
+  }
+
+  if (isRootNode(node)) return 0;
+
+  const parent = getParentNode(allNodes, node);
+  return resolveNodeCatalogGeneration(allNodes, node, parent);
+}
+
+/** Progreso fino dentro del aro actual (nivel/XP), sin saltar generación. */
+function practiceLevelBonus(node: SkillNode): number {
+  const bandWidth = NEN_AXIS_MAX / NEN_RING_GENERATIONS;
+  const levelPart = Math.min(1, Math.max(0, node.level - 1) / 4);
+  const xpPart = Math.min(1, node.xp / 200);
+  const progress = Math.min(1, levelPart * 0.6 + xpPart * 0.4);
+  return progress * bandWidth * 0.45;
+}
+
+function axisValueFromPracticeDepth(maxGeneration: number, levelBonus: number): number {
+  const ringFill = ((maxGeneration + 1) / NEN_RING_GENERATIONS) * NEN_AXIS_MAX;
+  return clampAxis(Math.min(NEN_AXIS_MAX, ringFill + levelBonus));
+}
+
+/** Valor 0-100 de un eje Nen según la generación más profunda practicada en ese eje. */
 export function calculateNenAxisValue(allNodes: SkillNode[], axisId: NenAxisId): number {
   const active = allNodes.filter((node) => {
     if (!isNenActiveNode(node)) return false;
+    if (node.layer === 'root') return false;
     return resolveNenAxisId(node, allNodes) === axisId;
   });
 
   if (active.length === 0) return 0;
 
-  const sum = active.reduce(
-    (total, node) => total + NEN_NODE_BASE + node.level * NEN_AXIS_SCALE,
-    0
-  );
-  return clampAxis(Math.min(NEN_AXIS_MAX, sum / NEN_AXIS_SUM_SCALE));
+  let maxGeneration = 0;
+  let maxBonus = 0;
+
+  for (const node of active) {
+    const generation = resolvePracticeGeneration(node, allNodes);
+    maxGeneration = Math.max(maxGeneration, generation);
+    maxBonus = Math.max(maxBonus, practiceLevelBonus(node));
+  }
+
+  return axisValueFromPracticeDepth(maxGeneration, maxBonus);
 }
 
 /** Valor 0-100 de una vertiente concreta (útil para diagnóstico). */
 export function calculateNenAxis(nodes: SkillNode[], vertienteId: VertienteId): number {
   const active = nodes.filter((node) => {
+    if (!isNenActiveNode(node) || node.layer === 'root') return false;
     const vertiente = resolveVertienteId(node, nodes);
-    return vertiente === vertienteId && isNenActiveNode(node);
+    return vertiente === vertienteId;
   });
 
   if (active.length === 0) return 0;
 
-  const sum = active.reduce(
-    (total, node) => total + NEN_NODE_BASE + node.level * NEN_AXIS_SCALE,
-    0
-  );
-  return clampAxis(Math.min(NEN_AXIS_MAX, sum / NEN_AXIS_SUM_SCALE));
+  let maxGeneration = 0;
+  let maxBonus = 0;
+
+  for (const node of active) {
+    const generation = resolvePracticeGeneration(node, nodes);
+    maxGeneration = Math.max(maxGeneration, generation);
+    maxBonus = Math.max(maxBonus, practiceLevelBonus(node));
+  }
+
+  return axisValueFromPracticeDepth(maxGeneration, maxBonus);
 }
 
 export function calculateNenHexagon(allNodes: SkillNode[]): NenProfile {
@@ -89,13 +132,14 @@ export function logNenAxisVertienteSync(nodes: SkillNode[]): void {
 
   const probes: { label: string; slug: string; expectedAxis: NenAxisId }[] = [
     { label: 'Gimnasio → Intensificación', slug: 'discipline_physical_gimnasio', expectedAxis: 'intensification' },
-    { label: 'Coding → Manipulación', slug: 'discipline_productive_coding', expectedAxis: 'manipulation' },
-    { label: 'Writing → Emisión', slug: 'discipline_productive_writing', expectedAxis: 'emission' },
-    { label: 'Enfoque → Materialización', slug: 'discipline_mental_emotional_enfoque', expectedAxis: 'materialization' },
-    { label: 'Judo → Transformación', slug: 'discipline_physical_judo', expectedAxis: 'transformation' },
-    { label: 'Fisioterapia → Transformación', slug: 'discipline_physical_fisioterapia', expectedAxis: 'transformation' },
-    { label: 'Nervioso → Especialización', slug: 'discipline_mental_emotional_nervioso', expectedAxis: 'specialization' },
-    { label: 'Lectura → Especialización', slug: 'discipline_mental_emotional_lectura', expectedAxis: 'specialization' },
+    { label: 'Judo → Intensificación', slug: 'discipline_physical_judo', expectedAxis: 'intensification' },
+    { label: 'Fisioterapia → Intensificación', slug: 'discipline_physical_fisioterapia', expectedAxis: 'intensification' },
+    { label: 'Inversión I1 → Manipulación', slug: 'prod_invest_i1', expectedAxis: 'manipulation' },
+    { label: 'Video → Emisión', slug: 'discipline_emission_video', expectedAxis: 'emission' },
+    { label: 'Productos → Materialización', slug: 'discipline_materialization_productos', expectedAxis: 'materialization' },
+    { label: 'Inglés → Transformación', slug: 'discipline_transformation_ingles', expectedAxis: 'transformation' },
+    { label: 'Lectura → Especialización', slug: 'discipline_specialization_lectura', expectedAxis: 'specialization' },
+    { label: 'Filosofía → Especialización', slug: 'discipline_specialization_filosofia', expectedAxis: 'specialization' },
   ];
 
   console.log('[Nen] Auditoría hexágono — eje ↔ vertiente (6 núcleos madre)');
@@ -120,7 +164,7 @@ export function logNenAxisVertienteSync(nodes: SkillNode[]): void {
     console.log(`  · ${NEN_AXIS_LABELS[axisId]} (${axisId}): ${NEN_HEXAGON_VERTEX_DEG[axisId]}°`);
   }
 
-  console.log('[Nen] calculateNenAxisValue por eje:');
+  console.log('[Nen] calculateNenAxisValue por eje (profundidad de generación):');
   for (const axisId of NEN_AXIS_IDS_ORDER) {
     const value = calculateNenAxisValue(nodes, axisId);
     const vertientes = NEN_AXIS_VERTIENTES[axisId]

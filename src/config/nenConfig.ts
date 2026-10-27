@@ -41,15 +41,27 @@ export type VertienteId =
   | 'gimnasio'
   | 'judo'
   | 'fisioterapia'
-  | 'nervioso'
-  | 'enfoque'
+  | 'ingles'
+  | 'instrumento'
+  | 'meditacion'
+  | 'video'
+  | 'presencia'
+  | 'productos'
+  | 'clientes'
+  | 'inversiones'
+  | 'recursos'
   | 'lectura'
+  | 'filosofia'
+  | 'nueva_habilidad'
+  | 'contenido_video'
+  | 'presencia_digital'
+  | 'productos_digitales'
+  | 'stack_tecnico'
+  | 'recursos_tiempo'
+  | 'filosofia_practica'
   | 'guitar'
   | 'piano'
-  | 'language'
-  | 'coding'
-  | 'writing'
-  | 'design';
+  | 'language';
 
 export const NEN_AXIS_LABELS: Record<NenAxisId, string> = {
   intensification: 'Intensificación',
@@ -99,10 +111,10 @@ export const NEN_PALETA: Record<NenAxisId, NenPaletaEntry> = {
     label: 'Materialización',
   },
   manipulation: {
-    color: '#22C55E',
-    colorGlow: 'rgba(34, 197, 94, 0.25)',
-    colorMuted: '#14532D',
-    colorText: '#4ADE80',
+    color: '#06B6D4',
+    colorGlow: 'rgba(6, 182, 212, 0.28)',
+    colorMuted: '#0E7490',
+    colorText: '#22D3EE',
     label: 'Manipulación',
   },
   specialization: {
@@ -149,18 +161,30 @@ export const NEN_AXIS_VERTIENTES: Record<NenAxisId, readonly VertienteId[]> =
 
 /** Etiquetas legibles de vertiente para logs y UI de diagnóstico. */
 export const VERTIENTE_DISPLAY_NAMES: Record<VertienteId, string> = {
-  gimnasio: 'Gimnasio (Hipertrofia y Fuerza en Rack)',
-  coding: 'Desarrollo de Software e IA',
-  writing: 'Creación de Contenido y Monetización Digital',
-  enfoque: 'Enfoque, Cognición Aguda y Lanzamiento de Apps',
-  judo: 'Judo Técnico',
-  fisioterapia: 'Fisioterapia de Blindaje Articular',
-  nervioso: 'Regulación del Sistema Nervioso',
-  lectura: 'Lectura Estoica Diaria',
+  gimnasio: 'Gimnasio — Hipertrofia y Fuerza',
+  judo: 'Judo — Camino de Cinturones',
+  fisioterapia: 'Fisioterapia — Blindaje Articular',
+  ingles: 'Inglés Clínico',
+  instrumento: 'Instrumento Musical',
+  meditacion: 'Meditación y Presencia',
+  video: 'Contenido de Video',
+  presencia: 'Presencia Digital',
+  productos: 'Factoría de Productos Digitales',
+  clientes: 'Agencia Web / Clientes',
+  inversiones: 'Inversiones ETF',
+  recursos: 'Gestión de Recursos y Tiempo',
+  lectura: 'Lectura — Asimilación',
+  filosofia: 'Filosofía Práctica',
+  nueva_habilidad: 'Nueva Habilidad — Slot Abierto',
+  contenido_video: 'Contenido Video',
+  presencia_digital: 'Presencia Digital',
+  productos_digitales: 'Productos Digitales',
+  stack_tecnico: 'Stack Técnico',
+  recursos_tiempo: 'Recursos y Tiempo',
+  filosofia_practica: 'Filosofía Práctica',
   guitar: 'Guitarra',
   piano: 'Piano',
   language: 'Idioma',
-  design: 'Diseño y Marca Visual',
 };
 
 const SLUG_VERTIENTE_RULES: { prefix: string; vertiente: VertienteId }[] = [
@@ -170,26 +194,46 @@ const SLUG_VERTIENTE_RULES: { prefix: string; vertiente: VertienteId }[] = [
   { prefix: 'discipline_physical_judo', vertiente: 'judo' },
   { prefix: 'phy_physio_', vertiente: 'fisioterapia' },
   { prefix: 'discipline_physical_fisioterapia', vertiente: 'fisioterapia' },
-  { prefix: 'men_nerv_', vertiente: 'nervioso' },
-  { prefix: 'discipline_mental_emotional_nervioso', vertiente: 'nervioso' },
-  { prefix: 'men_focus_', vertiente: 'enfoque' },
-  { prefix: 'discipline_mental_emotional_enfoque', vertiente: 'enfoque' },
+  { prefix: 'trans_eng_', vertiente: 'ingles' },
+  { prefix: 'discipline_transformation_ingles', vertiente: 'ingles' },
+  { prefix: 'discipline_intellectual_ingles', vertiente: 'ingles' },
+  { prefix: 'trans_inst_', vertiente: 'instrumento' },
+  { prefix: 'discipline_transformation_instrumento', vertiente: 'instrumento' },
+  { prefix: 'trans_skill_', vertiente: 'nueva_habilidad' },
+  { prefix: 'discipline_intellectual_nueva_habilidad', vertiente: 'nueva_habilidad' },
+  { prefix: 'trans_medit_', vertiente: 'meditacion' },
+  { prefix: 'discipline_transformation_meditacion', vertiente: 'meditacion' },
   { prefix: 'men_read_', vertiente: 'lectura' },
+  { prefix: 'discipline_specialization_lectura', vertiente: 'lectura' },
   { prefix: 'discipline_mental_emotional_lectura', vertiente: 'lectura' },
+  { prefix: 'men_phil_', vertiente: 'filosofia' },
+  { prefix: 'discipline_specialization_filosofia', vertiente: 'filosofia' },
+  { prefix: 'discipline_mental_emotional_filosofia_practica', vertiente: 'filosofia_practica' },
+  { prefix: 'prod_video_', vertiente: 'video' },
+  { prefix: 'discipline_emission_video', vertiente: 'video' },
+  { prefix: 'discipline_productive_contenido_video', vertiente: 'contenido_video' },
+  { prefix: 'prod_pres_', vertiente: 'presencia' },
+  { prefix: 'discipline_emission_presencia', vertiente: 'presencia' },
+  { prefix: 'discipline_productive_presencia_digital', vertiente: 'presencia_digital' },
+  { prefix: 'prod_arch_', vertiente: 'productos' },
+  { prefix: 'discipline_materialization_productos', vertiente: 'productos' },
+  { prefix: 'discipline_productive_productos_digitales', vertiente: 'productos_digitales' },
+  { prefix: 'prod_cli_', vertiente: 'clientes' },
+  { prefix: 'discipline_materialization_clientes', vertiente: 'clientes' },
+  { prefix: 'prod_stack_', vertiente: 'stack_tecnico' },
+  { prefix: 'discipline_productive_stack_tecnico', vertiente: 'stack_tecnico' },
+  { prefix: 'prod_invest_', vertiente: 'inversiones' },
+  { prefix: 'discipline_manipulation_inversiones', vertiente: 'inversiones' },
+  { prefix: 'discipline_productive_inversiones', vertiente: 'inversiones' },
+  { prefix: 'prod_rec_', vertiente: 'recursos' },
+  { prefix: 'discipline_manipulation_recursos', vertiente: 'recursos' },
+  { prefix: 'discipline_productive_recursos_tiempo', vertiente: 'recursos_tiempo' },
   { prefix: 'disc_guitar_', vertiente: 'guitar' },
   { prefix: 'discipline_intellectual_guitar', vertiente: 'guitar' },
   { prefix: 'disc_piano_', vertiente: 'piano' },
   { prefix: 'discipline_intellectual_piano', vertiente: 'piano' },
   { prefix: 'disc_lang_', vertiente: 'language' },
   { prefix: 'discipline_intellectual_language', vertiente: 'language' },
-  { prefix: 'prod_code_', vertiente: 'coding' },
-  { prefix: 'disc_code_', vertiente: 'coding' },
-  { prefix: 'discipline_productive_coding', vertiente: 'coding' },
-  { prefix: 'prod_write_', vertiente: 'writing' },
-  { prefix: 'disc_write_', vertiente: 'writing' },
-  { prefix: 'discipline_productive_writing', vertiente: 'writing' },
-  { prefix: 'disc_design_', vertiente: 'design' },
-  { prefix: 'discipline_productive_design', vertiente: 'design' },
 ];
 
 /** wildcard_physical:judo → vertiente judo */
@@ -197,15 +241,27 @@ const WILDCARD_BUNDLE_VERTIENTE: Record<string, VertienteId> = {
   gimnasio: 'gimnasio',
   judo: 'judo',
   fisioterapia: 'fisioterapia',
-  nervioso: 'nervioso',
-  enfoque: 'enfoque',
+  ingles: 'ingles',
+  instrumento: 'instrumento',
+  meditacion: 'meditacion',
+  nueva_habilidad: 'nueva_habilidad',
   lectura: 'lectura',
+  filosofia: 'filosofia',
+  filosofia_practica: 'filosofia_practica',
+  video: 'video',
+  contenido_video: 'contenido_video',
+  presencia: 'presencia',
+  presencia_digital: 'presencia_digital',
+  productos: 'productos',
+  productos_digitales: 'productos_digitales',
+  clientes: 'clientes',
+  stack_tecnico: 'stack_tecnico',
+  inversiones: 'inversiones',
+  recursos: 'recursos',
+  recursos_tiempo: 'recursos_tiempo',
   guitar: 'guitar',
   piano: 'piano',
   language: 'language',
-  coding: 'coding',
-  writing: 'writing',
-  design: 'design',
 };
 
 function resolveConfiguredWildcardVertiente(slug: string): VertienteId | null {

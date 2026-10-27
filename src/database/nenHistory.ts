@@ -1,13 +1,12 @@
 import {
   NEN_HISTORY_RETENTION_DAYS,
-  NEN_SMOOTHING_WINDOW_DAYS,
   NEN_AXIS_IDS_ORDER,
   NenAxisId,
   NenProfile,
 } from '@/src/config/nenConfig';
 import { getDatabase } from '@/src/database/localSchema';
 import { asRow } from '@/src/database/mappers';
-import { averageNenProfiles, calculateNenHexagon } from '@/src/utils/nenEngine';
+import { calculateNenHexagon } from '@/src/utils/nenEngine';
 import {
   applyNenProfileDecay,
   buildNenAxisDecayInsights,
@@ -49,17 +48,6 @@ export async function ensureNenHistoryTable(): Promise<void> {
 
 function profileHasProgress(profile: NenProfile): boolean {
   return Object.values(profile).some((value) => value > 0);
-}
-
-function mergeNenProfilesMax(raw: NenProfile, smoothed: NenProfile): NenProfile {
-  if (!profileHasProgress(raw)) {
-    return raw;
-  }
-  const merged = { ...smoothed };
-  (Object.keys(merged) as NenAxisId[]).forEach((axisId) => {
-    merged[axisId] = Math.max(raw[axisId], smoothed[axisId]);
-  });
-  return merged;
 }
 
 export async function recordNenSnapshot(allNodes: SkillNode[]): Promise<NenProfile> {
@@ -120,27 +108,8 @@ export async function pruneNenHistory(): Promise<void> {
 }
 
 export async function computeSmoothedNenBase(allNodes: SkillNode[]): Promise<NenProfile> {
-  const raw = await recordNenSnapshot(allNodes);
-  const db = await getDatabase();
-  const rows = await db.getAllAsync(
-    `SELECT * FROM nen_history ORDER BY recorded_date DESC LIMIT ?`,
-    NEN_SMOOTHING_WINDOW_DAYS
-  );
-
-  if (rows.length === 0) {
-    return raw;
-  }
-
-  const profiles = rows
-    .map((row) => profileFromRow(asRow(row)))
-    .filter(profileHasProgress);
-
-  if (profiles.length === 0) {
-    return raw;
-  }
-
-  const smoothed = averageNenProfiles(profiles.reverse());
-  return mergeNenProfilesMax(raw, smoothed);
+  // El radar refleja la profundidad actual (generación practicada), no un máximo histórico.
+  return recordNenSnapshot(allNodes);
 }
 
 export interface NenRadarDisplayContext {

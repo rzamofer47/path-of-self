@@ -156,88 +156,91 @@ export function NodeInfoModal({
           <Text style={[styles.title, { color: accent }]}>
             {isWildcard ? getWildcardDisplayName(node) : node.name}
           </Text>
-          <Text style={[styles.subtitle, { color: theme.textMuted }]}>
-            {MACRO_AREA_LABELS[node.macroArea]} · Nivel {node.level} · {xpInLevel}/{PROGRESION_CONFIG.xpPorNivel} XP
-          </Text>
-          {isWildcard && onConfigureWildcard ? (
-            <View style={styles.wildcardBlock}>
-              <WildcardSelectionPanel
-                accentColor={accent}
-                theme={theme}
-                onSave={handleConfigureWildcard}
-                onCancel={onClose}
-              />
-            </View>
-          ) : null}
-          {lastCheckLabel ? (
-            <Text style={[styles.checkLine, { color: theme.textMuted }]}>
-              Último Check: {lastCheckLabel}
-            </Text>
-          ) : null}
-          {isVisualDecayTrackedNode(node) && streakCurrent != null ? (
-            <View style={styles.streakBlock}>
-              <Text style={[styles.sectionLabel, { color: theme.textMuted }]}>RACHA</Text>
-              <Text style={[styles.streakLine, { color: theme.text }]}>
-                Actual: {streakCurrent} días · Máxima: {streakMax ?? 0} días
-              </Text>
-              <Text style={[styles.checkLine, { color: theme.textMuted }]}>
-                Último check registrado: {streakLastCheck}
-              </Text>
-            </View>
-          ) : null}
-
-          {!isWildcard ? (
-            <View style={styles.practiceBlock}>
-              <Text style={[styles.sectionLabel, { color: theme.textMuted }]}>
-                PRÁCTICA RECOMENDADA
-              </Text>
-              <Text style={[styles.practiceLine, { color: theme.text }]}>
-                {sessionQualityIcon('parcial')} Mínimo{'      '}
-                {practiceParams.sesionMinima} min
-              </Text>
-              <Text style={[styles.practiceLine, { color: theme.text }]}>
-                {sessionQualityIcon('completa')} Óptimo{'     '}
-                {practiceParams.sesionOptima} min
-              </Text>
-              <Text style={[styles.practiceLine, { color: theme.text }]}>
-                {sessionQualityIcon('extendida')} Máximo{'     '}
-                {practiceParams.sesionMaxima} min
-              </Text>
-              <Text style={[styles.practiceLine, { color: theme.textMuted }]}>
-                {'   '}Frecuencia{'  '}
-                {practiceParams.frecuenciaSemanal}x por semana
-              </Text>
-
-              <Text style={[styles.sectionLabel, styles.historyLabel, { color: theme.textMuted }]}>
-                HISTORIAL RECIENTE
-              </Text>
-              {recentHistory.length === 0 ? (
-                <Text style={[styles.practiceLine, { color: theme.textMuted }]}>
-                  Sin sesiones registradas aún.
-                </Text>
-              ) : (
-                recentHistory.map((entry, index) => {
-                  const older = recentHistory.slice(index + 1);
-                  return (
-                    <Text
-                      key={`${entry.fecha}-${entry.calidad}`}
-                      style={[styles.practiceLine, { color: theme.text }]}
-                    >
-                      ● {sessionQualityIcon(entry.calidad)}{' '}
-                      {formatHistoryDayLabel(entry.fecha, older)}
-                    </Text>
-                  );
-                })
-              )}
-            </View>
-          ) : null}
 
           <ScrollView
             style={styles.scroll}
             contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
+            showsVerticalScrollIndicator
             bounces={false}
+            nestedScrollEnabled
           >
+            <Text style={[styles.subtitle, { color: theme.textMuted }]}>
+              {MACRO_AREA_LABELS[node.macroArea]} · Nivel {node.level} · {xpInLevel}/
+              {PROGRESION_CONFIG.xpPorNivel} XP
+            </Text>
+            {isWildcard && onConfigureWildcard ? (
+              <View style={styles.wildcardBlock}>
+                <WildcardSelectionPanel
+                  accentColor={accent}
+                  theme={theme}
+                  onSave={handleConfigureWildcard}
+                  onCancel={onClose}
+                />
+              </View>
+            ) : null}
+            {lastCheckLabel ? (
+              <Text style={[styles.checkLine, { color: theme.textMuted }]}>
+                Último Check: {lastCheckLabel}
+              </Text>
+            ) : null}
+            {isVisualDecayTrackedNode(node) && streakCurrent != null ? (
+              <View style={styles.streakBlock}>
+                <Text style={[styles.sectionLabel, { color: theme.textMuted }]}>RACHA</Text>
+                <Text style={[styles.streakLine, { color: theme.text }]}>
+                  Actual: {streakCurrent} días · Máxima: {streakMax ?? 0} días
+                </Text>
+                <Text style={[styles.checkLine, { color: theme.textMuted }]}>
+                  Último check registrado: {streakLastCheck}
+                </Text>
+              </View>
+            ) : null}
+
+            {!isWildcard ? (
+              <View style={styles.practiceBlock}>
+                <Text style={[styles.sectionLabel, { color: theme.textMuted }]}>
+                  PRÁCTICA RECOMENDADA
+                </Text>
+                <Text style={[styles.practiceLine, { color: theme.text }]}>
+                  {sessionQualityIcon('parcial')} Mínimo{'      '}
+                  {practiceParams.sesionMinima} min
+                </Text>
+                <Text style={[styles.practiceLine, { color: theme.text }]}>
+                  {sessionQualityIcon('completa')} Óptimo{'     '}
+                  {practiceParams.sesionOptima} min
+                </Text>
+                <Text style={[styles.practiceLine, { color: theme.text }]}>
+                  {sessionQualityIcon('extendida')} Máximo{'     '}
+                  {practiceParams.sesionMaxima} min
+                </Text>
+                <Text style={[styles.practiceLine, { color: theme.textMuted }]}>
+                  {'   '}Frecuencia{'  '}
+                  {practiceParams.frecuenciaSemanal}x por semana
+                </Text>
+
+                <Text style={[styles.sectionLabel, styles.historyLabel, { color: theme.textMuted }]}>
+                  HISTORIAL RECIENTE
+                </Text>
+                {recentHistory.length === 0 ? (
+                  <Text style={[styles.practiceLine, { color: theme.textMuted }]}>
+                    Sin sesiones registradas aún.
+                  </Text>
+                ) : (
+                  recentHistory.map((entry, index) => {
+                    const older = recentHistory.slice(index + 1);
+                    return (
+                      <Text
+                        key={`${entry.fecha}-${entry.calidad}`}
+                        style={[styles.practiceLine, { color: theme.text }]}
+                      >
+                        ● {sessionQualityIcon(entry.calidad)}{' '}
+                        {formatHistoryDayLabel(entry.fecha, older)}
+                      </Text>
+                    );
+                  })
+                )}
+              </View>
+            ) : null}
+
             {!isWildcard && guide.beneficio ? (
               <View style={styles.metaBlock}>
                 <Text style={[styles.sectionLabel, { color: theme.textMuted }]}>PARA QUÉ SIRVE</Text>
@@ -316,6 +319,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 320,
     maxHeight: '82%',
+    flexDirection: 'column',
     borderRadius: 14,
     paddingHorizontal: 18,
     paddingTop: 14,
@@ -375,11 +379,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   scroll: {
-    flexGrow: 0,
-    flexShrink: 1,
+    flex: 1,
+    minHeight: 0,
   },
   scrollContent: {
-    paddingBottom: 4,
+    paddingBottom: 8,
   },
   metaBlock: {
     marginTop: 10,

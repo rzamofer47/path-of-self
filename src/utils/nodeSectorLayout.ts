@@ -37,7 +37,7 @@ export const MIN_SIBLING_ORB_DISTANCE_PX = 80;
 export const VERTIENTE_BRANCH_OFFSET_RAD: Partial<Record<VertienteId, number>> = {
   judo: -0.32,
   fisioterapia: 0.32,
-  nervioso: -0.32,
+  filosofia: -0.32,
   lectura: 0.32,
 };
 
@@ -340,7 +340,7 @@ export function resolveCustomNodeSectorPlacement(
     (parent ? resolveVertienteId(parent, nodes) : null);
 
   if (!vertienteId) {
-    const fallbackAxis = resolveLayoutAxisId('coding');
+    const fallbackAxis = resolveLayoutAxisId('recursos');
     const config: MacroAreaSectorConfig = {
       axisId: fallbackAxis,
       branchAngleRad: NEN_MOTHER_VECTOR_RAD[fallbackAxis],

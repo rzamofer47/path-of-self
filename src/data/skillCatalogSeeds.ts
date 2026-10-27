@@ -2,7 +2,9 @@ import { DISCIPLINE_CATALOG } from '@/src/data/disciplineCatalog';
 import { GUIDE_SUGGESTIONS } from '@/src/data/guideSuggestions';
 import { buildMentalEmotionalGalaxyCatalogSeeds } from '@/src/data/mentalEmotionalGalaxyCatalog';
 import { buildPhysicalGalaxyCatalogSeeds } from '@/src/data/physicalGalaxyCatalog';
+import { buildManipulationGalaxyCatalogSeeds } from '@/src/data/manipulationGalaxyCatalog';
 import { buildProductiveGalaxyCatalogSeeds } from '@/src/data/productiveGalaxyCatalog';
+import { buildTransformationGalaxyCatalogSeeds } from '@/src/data/transformationGalaxyCatalog';
 import {
   NEN_MOTHER_ROOTS,
   NEN_MOTHER_SLUG_BY_ID,
@@ -20,7 +22,7 @@ import {
   toCatalogLayoutPoint,
 } from '@/src/utils/catalogLayout';
 import { assignStableSlots } from '@/src/utils/catalogLayoutPolicy';
-import { catalogChildPositionFromParent } from '@/src/utils/mapGeometry';
+import { catalogChildPositionFromParent, catalogLinearChildFromParent } from '@/src/utils/mapGeometry';
 
 export interface CatalogNodeSeed {
   slug: string;
@@ -36,14 +38,36 @@ export interface CatalogNodeSeed {
   /** @deprecated Usar youtubeUrl */
   guideUrl?: string | null;
   colorRole?: NodeColorRole | null;
+  /** Slug del nodo que debe tener XP > 0 para desbloquear este paso. */
+  prerequisiteSlug?: string | null;
 }
 
 const ROOT_SLUG_BY_AREA: Record<MacroArea, string> = NEN_ROOT_SLUG_BY_MACRO;
 
 const PRODUCTIVE_MOTHER_BY_KEY: Record<string, keyof typeof NEN_MOTHER_SLUG_BY_ID> = {
-  coding: 'manipulation',
+  video: 'emission',
+  presencia: 'emission',
+  contenido_video: 'emission',
+  presencia_digital: 'emission',
+  productos: 'materialization',
+  clientes: 'materialization',
+  productos_digitales: 'materialization',
+  stack_tecnico: 'materialization',
+  inversiones: 'manipulation',
+  recursos: 'manipulation',
+  recursos_tiempo: 'manipulation',
+  manip_tiempo: 'manipulation',
+  manip_recursos: 'manipulation',
+  manip_biologica: 'manipulation',
   writing: 'emission',
   design: 'emission',
+};
+
+const INTELLECTUAL_MOTHER_BY_KEY: Record<string, NenMotherId> = {
+  ingles: 'transformation',
+  instrumento: 'transformation',
+  meditacion: 'transformation',
+  nueva_habilidad: 'transformation',
 };
 
 const INTELLECTUAL_ROOT_SLUG = NEN_MOTHER_SLUG_BY_ID.specialization;
@@ -52,7 +76,10 @@ function resolveBundleMotherId(macroArea: MacroArea, bundleKey: string): NenMoth
   if (macroArea === 'productive') {
     return PRODUCTIVE_MOTHER_BY_KEY[bundleKey] ?? 'manipulation';
   }
-  if (macroArea === 'intellectual' || macroArea === 'mental_emotional') {
+  if (macroArea === 'intellectual') {
+    return INTELLECTUAL_MOTHER_BY_KEY[bundleKey] ?? 'specialization';
+  }
+  if (macroArea === 'mental_emotional') {
     return 'specialization';
   }
   return 'intensification';
@@ -85,7 +112,7 @@ interface HubDraftEntry {
   youtubeUrl?: string | null;
 }
 
-const OTHER_MACRO_AREAS: MacroArea[] = ['intellectual'];
+const OTHER_MACRO_AREAS: MacroArea[] = [];
 
 interface SeedDraft {
   slug: string;
@@ -118,7 +145,7 @@ function orderSeedsByDependency(seeds: CatalogNodeSeed[]): CatalogNodeSeed[] {
 }
 
 function resolveGuideMotherId(macroArea: MacroArea, guideSlug: string): NenMotherId | null {
-  if (guideSlug === 'guide_pomodoro') return 'materialization';
+  if (guideSlug === 'guide_pomodoro') return 'manipulation';
   if (macroArea === 'intellectual') return 'specialization';
   if (macroArea === 'productive') return 'manipulation';
   return null;
@@ -326,13 +353,23 @@ function computeCatalogPositionsByParentChain(
     const sibKey = `${seed.parentSlug}:${generation}`;
     const siblings = siblingsByParentGen.get(sibKey) ?? [seed];
     const slotIndex = Math.max(0, siblings.findIndex((s) => s.slug === seed.slug));
-    const placement = catalogChildPositionFromParent(
-      parent.logX,
-      parent.logY,
-      generation,
-      slotIndex,
-      siblings.length
-    );
+    const isLinearChainStep =
+      siblings.length === 1 && generation > 1 && !seed.slug.startsWith('discipline_');
+
+    const placement = isLinearChainStep
+      ? catalogLinearChildFromParent(
+          parent.logX,
+          parent.logY,
+          slotIndex,
+          siblings.length
+        )
+      : catalogChildPositionFromParent(
+          parent.logX,
+          parent.logY,
+          generation,
+          slotIndex,
+          siblings.length
+        );
     layoutBySlug.set(seed.slug, placement);
   }
 
@@ -357,7 +394,9 @@ function applySectorPositionsToCatalogSeeds(seeds: CatalogNodeSeed[]): CatalogNo
 /** Genera todos los nodos bloqueados del catálogo con posiciones sectoriales deterministas. */
 export function buildSkillCatalogSeeds(): CatalogNodeSeed[] {
   const physicalGalaxy = buildPhysicalGalaxyCatalogSeeds();
+  const transformationGalaxy = buildTransformationGalaxyCatalogSeeds();
   const mentalGalaxy = buildMentalEmotionalGalaxyCatalogSeeds();
+  const manipulationGalaxy = buildManipulationGalaxyCatalogSeeds();
   const productiveGalaxy = buildProductiveGalaxyCatalogSeeds();
   const otherAreas = OTHER_MACRO_AREAS.flatMap((macroArea) =>
     buildLegacyMacroAreaSeeds(macroArea)
@@ -365,7 +404,9 @@ export function buildSkillCatalogSeeds(): CatalogNodeSeed[] {
 
   const ordered = orderSeedsByDependency([
     ...physicalGalaxy,
+    ...transformationGalaxy,
     ...mentalGalaxy,
+    ...manipulationGalaxy,
     ...productiveGalaxy,
     ...otherAreas,
   ]);
@@ -373,3 +414,43 @@ export function buildSkillCatalogSeeds(): CatalogNodeSeed[] {
 }
 
 export { ROOT_SLUG_BY_AREA };
+
+let catalogParentBySlugCache: Map<string, string> | null = null;
+let catalogChildrenByParentSlugCache: Map<string, string[]> | null = null;
+let catalogPrerequisiteBySlugCache: Map<string, string | null> | null = null;
+
+function ensureCatalogHierarchyCaches(): void {
+  if (catalogParentBySlugCache && catalogChildrenByParentSlugCache && catalogPrerequisiteBySlugCache) {
+    return;
+  }
+
+  catalogParentBySlugCache = new Map();
+  catalogChildrenByParentSlugCache = new Map();
+  catalogPrerequisiteBySlugCache = new Map();
+
+  for (const seed of buildSkillCatalogSeeds()) {
+    catalogParentBySlugCache.set(seed.slug, seed.parentSlug);
+    catalogPrerequisiteBySlugCache.set(seed.slug, seed.prerequisiteSlug ?? null);
+    const siblings = catalogChildrenByParentSlugCache.get(seed.parentSlug) ?? [];
+    siblings.push(seed.slug);
+    catalogChildrenByParentSlugCache.set(seed.parentSlug, siblings);
+  }
+}
+
+/** parentSlug del catálogo para un slug de nodo (p. ej. prod_manip_tiempo_* → discipline_productive_manip_tiempo). */
+export function getCatalogParentSlug(nodeSlug: string): string | null {
+  ensureCatalogHierarchyCaches();
+  return catalogParentBySlugCache!.get(nodeSlug) ?? null;
+}
+
+/** Slugs hijos directos en catálogo (p. ej. discipline_productive_manip_recursos → prod_manip_recursos_*). */
+export function getCatalogChildSlugs(parentSlug: string): readonly string[] {
+  ensureCatalogHierarchyCaches();
+  return catalogChildrenByParentSlugCache!.get(parentSlug) ?? [];
+}
+
+/** Prerequisito de progresión (XP > 0 en este slug para desbloquear). */
+export function getCatalogPrerequisiteSlug(nodeSlug: string): string | null {
+  ensureCatalogHierarchyCaches();
+  return catalogPrerequisiteBySlugCache!.get(nodeSlug) ?? null;
+}

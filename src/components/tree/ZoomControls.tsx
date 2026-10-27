@@ -33,7 +33,7 @@ export function ZoomControls({
         {Math.round(scale * 100)}%
       </Text>
       <Text style={[styles.lodHint, { color: detail ? theme.primary : theme.textMuted }]}>
-        {detail ? 'Detalle' : 'Mapa'}
+        {detail ? 'Detalle · pellizca' : 'Mapa · pellizca'}
       </Text>
       <Pressable
         style={[styles.btn, atMin && styles.btnDisabled]}

@@ -20,7 +20,7 @@ import { ORB_RADIUS } from '@/src/utils/treeLayout';
 import { SkillNode } from '@/src/types';
 
 /** Activa el layout force-directed en TreeCanvas (alternativa a coordenadas estáticas). */
-export const ENABLE_FORCE_DIRECTED_LAYOUT = true;
+export const ENABLE_FORCE_DIRECTED_LAYOUT = false;
 
 export const FORCE_LAYOUT_MAX_ITERATIONS = 120;
 export const FORCE_LAYOUT_FRICTION = 0.6;
